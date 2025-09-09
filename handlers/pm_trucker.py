@@ -372,49 +372,28 @@ async def handle_pm_vehicle_location(callback: CallbackQuery):
 async def index_channel_pdf(message: Message):
     doc = message.document
     fname = (doc.file_name or "").lower()
-    # We only index files like 1030-REG-2026.pdf
     if fname.endswith(".pdf") and "-reg-" in fname:
+        logger.info(f"Indexing file {fname} (file_id={doc.file_id}, msg_id={message.message_id})")
         index_file(file_name=fname, file_id=doc.file_id, message_id=message.message_id)
-        # Optional: small ack in logs (avoid replying in channel)
-        # logger.info(f"Indexed registration file: {fname}")
 
+        
 @router.callback_query(F.data.startswith("pm_vehicle_reg:"))
 async def handle_registration_file(callback: CallbackQuery):
-    """Send registration PDF for a vehicle"""
     await callback.answer()
-    # Immediately disable the UI by removing inline keyboard
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
-    except TelegramBadRequest:
-        pass
     except Exception:
         pass
 
-    # Callback data format: pm_vehicle_reg:<vehicle_name>
-    parts = callback.data.split(":", 1)
-    vehicle_name = parts[1] if len(parts) > 1 else ""
+    vehicle_name = callback.data.split(":", 1)[1]
+    logger.info(f"User requested reg file for vehicle={vehicle_name}")
 
-    key = vehicle_name.strip()
-    if not key:
-        await callback.message.answer("❌ Cannot determine vehicle name for registration file.")
-        return
+    result = find_latest_for_vehicle(vehicle_name)
+    logger.info(f"Lookup result for {vehicle_name}: {result}")
 
-    result = find_latest_for_vehicle(key)
     if not result:
-        await callback.message.answer(
-            f"❌ Registration file for **{key}** not found.\n\n"
-            "👉 Make sure the PDF (like `1030-REG-2026.pdf`) is posted in your channel "
-            "and the bot is an admin.\nRepost the file if needed.",
-            parse_mode="Markdown",
-        )
+        await callback.message.answer(f"❌ Registration file for **{vehicle_name}** not found.")
         return
 
     file_id, file_name = result
-    try:
-        await callback.message.answer_document(
-            document=file_id,
-            caption=f"📄 {file_name}",
-        )
-    except Exception as e:
-        logger.error(f"Failed to send registration file for {key}: {e}")
-        await callback.message.answer("⚠️ Failed to send the registration file.")
+    await callback.message.answer_document(document=file_id, caption=f"📄 {file_name}")
