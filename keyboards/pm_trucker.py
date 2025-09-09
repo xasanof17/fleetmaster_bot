@@ -50,10 +50,10 @@ def get_vehicles_list_keyboard(vehicles: List[Dict[str, Any]], page: int = 1, pe
     return b.as_markup()
 
 
-def get_vehicle_details_keyboard(vehicle_id: str) -> InlineKeyboardMarkup:
+def get_vehicle_details_keyboard(vehicle_id: str, vehicle_name: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.add(InlineKeyboardButton(text="📍 Current Location", callback_data=f"pm_vehicle_location:{vehicle_id}"))
-    b.add(InlineKeyboardButton(text="📄 Registration File", callback_data=f"pm_vehicle_stats:{vehicle_id}"))
+    b.add(InlineKeyboardButton(text="📄 Registration File", callback_data=f"pm_vehicle_stats:{vehicle_name}"))
     b.add(InlineKeyboardButton(text="🔄 Refresh", callback_data=f"pm_vehicle_details:{vehicle_id}"))
     b.add(InlineKeyboardButton(text="🔙 Back to Vehicles", callback_data="pm_view_all_vehicles"))
     b.add(InlineKeyboardButton(text="🏠 Main Menu", callback_data="main_menu"))

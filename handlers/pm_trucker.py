@@ -155,7 +155,7 @@ This might be due to:
         vehicle_info = format_vehicle_info(vehicle)
         await callback.message.edit_text(
             text=vehicle_info,
-            reply_markup=get_vehicle_details_keyboard(vehicle_id),
+            reply_markup=get_vehicle_details_keyboard(vehicle_id, vehicle.get("name", "")),
             parse_mode="Markdown"
         )
 
@@ -366,22 +366,26 @@ async def handle_pm_vehicle_location(callback: CallbackQuery):
     await callback.answer()
 
 @router.callback_query(F.data.startswith("pm_vehicle_reg:"))
-async def send_registration_file(callback: types.CallbackQuery):
+async def send_registration_file(callback: CallbackQuery):
     """Send registration PDF for a vehicle using cache"""
     vehicle_id = callback.data.split(":", 1)[1]
+    logger.info(f"📄 User {callback.from_user.id} requested registration file for vehicle {vehicle_id}")
 
     # 1️⃣ Try cache
     message_id = get_registration_file_id(vehicle_id)
 
     # 2️⃣ If not cached → rebuild
     if not message_id:
-        await build_registration_cache(callback.bot)
+        logger.info(f"Cache miss for vehicle {vehicle_id}, rebuilding cache...")
+        updated = await build_registration_cache(callback.bot)
+        logger.info(f"Cache rebuilt with {len(updated)} entries")
         message_id = get_registration_file_id(vehicle_id)
 
     # 3️⃣ If still not found
     if not message_id:
-        await callback.message.answer("❌ Registration file not found for this vehicle.")
+        await callback.message.answer(f"❌ Registration file not found for vehicle {vehicle_id}")
         await callback.answer()
+        logger.warning(f"No registration file found for {vehicle_id}")
         return
 
     # 4️⃣ Copy file from channel to user
@@ -392,6 +396,7 @@ async def send_registration_file(callback: types.CallbackQuery):
             message_id=message_id
         )
         await callback.answer("📄 Registration file sent")
+        logger.info(f"Sent registration file for {vehicle_id} (msg_id={message_id})")
     except Exception as e:
         logger.error(f"Error sending registration file for {vehicle_id}: {e}")
         await callback.message.answer("⚠️ Error fetching registration file.")
