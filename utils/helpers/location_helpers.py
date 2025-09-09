@@ -20,7 +20,6 @@ def build_live_location_message(vehicle: Dict[str, Any], location: Dict[str, Any
     msg = f"""
 📡 **Live Location Started**
 📍**Address:** {address}\n
-
 ⏳**Last Update:** {ts}
 """.strip()
     kb = after_location_keyboard()

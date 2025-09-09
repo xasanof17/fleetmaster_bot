@@ -16,14 +16,14 @@ class Settings:
     SAMSARA_BASE_URL: str = os.getenv("SAMSARA_BASE_URL", "https://api.samsara.com")
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     LOG_TO_FILE: bool = os.getenv("LOG_TO_FILE", "true").lower() == "true",
-     # Parse admins safely (accepts "123", "123,456", or "[123,456]")
- # Read admins robustly
+    # Parse admins safely (accepts "123", "123,456", or "[123,456]")
+    # Read admins robustly
     raw_admins = os.getenv("ADMIN", "")
     # remove [] and quotes
     raw_admins = raw_admins.strip("[]\"' ")
     # extract only digits (ignore weird characters)
-    ADMIN: List[int] = [int(x) for x in re.findall(r"\d+", raw_admins)]
-
+    ADMIN: List[int] = [int(x) for x in re.findall(r"\d+", raw_admins)],
+    CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))
 
     @classmethod
     def validate(cls) -> bool:

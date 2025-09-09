@@ -1,4 +1,5 @@
 import asyncio
+import re
 from config.settings import settings
 from aiogram import Router, types, F
 from aiogram.types import CallbackQuery, Message
@@ -19,6 +20,7 @@ from utils.helpers import (
 )
 from utils.logger_location import (log_location_request, read_logs)
 from utils.logger import get_logger
+from utils.registration_cache import build_registration_cache, get_registration_file_id
 
 logger = get_logger(__name__)
 router = Router()
@@ -362,37 +364,35 @@ async def handle_pm_vehicle_location(callback: CallbackQuery):
     )
 
     await callback.answer()
-    
-@router.message(Command("logs"))
-async def show_logs(message: Message):
-    """Admin command: show recent location logs"""
-    if message.from_user.id not in settings.ADMIN:
-        await message.answer("⛔ You don’t have permission to view logs.")
+
+@router.callback_query(F.data.startswith("pm_vehicle_reg:"))
+async def send_registration_file(callback: types.CallbackQuery):
+    """Send registration PDF for a vehicle using cache"""
+    vehicle_id = callback.data.split(":", 1)[1]
+
+    # 1️⃣ Try cache
+    message_id = get_registration_file_id(vehicle_id)
+
+    # 2️⃣ If not cached → rebuild
+    if not message_id:
+        await build_registration_cache(callback.bot)
+        message_id = get_registration_file_id(vehicle_id)
+
+    # 3️⃣ If still not found
+    if not message_id:
+        await callback.message.answer("❌ Registration file not found for this vehicle.")
+        await callback.answer()
         return
 
-    logs = read_logs(limit=10)  # last 10 entries
-    if not logs:
-        await message.answer("📭 No logs found.")
-        return
-
-    text_lines = ["📑 **Recent Location Logs:**\n"]
-    for entry in logs:
-        line = (
-            f"👤 User: `{entry['user_id']}`\n"
-            f"🚛 Vehicle: `{entry['vehicle_id']}`\n"
-            f"📍 Type: {entry['location_type']}\n"
-            f"🏠 Address: {entry['address']}\n"
-            f"🕐 Time: {entry['timestamp']}\n"
-            "───────────────"
+    # 4️⃣ Copy file from channel to user
+    try:
+        await callback.bot.copy_message(
+            chat_id=callback.message.chat.id,
+            from_chat_id=settings.CHANNEL_ID,
+            message_id=message_id
         )
-        text_lines.append(line)
-
-    text = "\n".join(text_lines)
-    await message.answer(text, parse_mode="Markdown")
-    
-@router.message()
-async def some_handler(message: Message):
-    if settings.is_admin(message.from_user.id):
-        await message.answer("✅ You are an admin!")
-    else:
-        await message.answer("⛔ Access denied.")
+        await callback.answer("📄 Registration file sent")
+    except Exception as e:
+        logger.error(f"Error sending registration file for {vehicle_id}: {e}")
+        await callback.message.answer("⚠️ Error fetching registration file.")
+        await callback.answer()
