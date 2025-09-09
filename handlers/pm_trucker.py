@@ -1,9 +1,11 @@
 import asyncio
+from config.settings import settings
 from aiogram import Router, types, F
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, Message
+from aiogram.filters import Command
 from services.samsara_service import samsara_service
-from keyboards.pm_tracker import (
-    get_pm_tracker_menu,
+from keyboards.pm_trucker import (
+    get_pm_trucker_menu,
     get_vehicle_details_keyboard,
     get_search_options_keyboard,
     get_vehicles_list_keyboard,
@@ -15,21 +17,21 @@ from utils.helpers import (
     build_static_location_message,
     build_live_location_message,
 )
-from utils.logger_location import log_location_request
+from utils.logger_location import (log_location_request, read_logs)
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = Router()
 LIVE_UPDATE_INTERVAL = 30
 
-@router.callback_query(lambda c: c.data == "pm_tracker")
-async def show_pm_tracker(callback: CallbackQuery):
-    """Show PM Tracker main menu"""
+@router.callback_query(lambda c: c.data == "pm_trucker")
+async def show_pm_trucker(callback: CallbackQuery):
+    """Show PM TRUCKER main menu"""
     
     await callback.answer()
-    logger.info(f"User {callback.from_user.id} accessed PM Tracker")
+    logger.info(f"User {callback.from_user.id} accessed PM TRUCKER")
 
-    pm_tracker_text = """🚛 **PM TRACKER**
+    pm_trucker_text = """🚛 **PM TRUCKER**
 
 Vehicle information and management system.
 
@@ -43,14 +45,14 @@ Select an option to continue:"""
 
     try:
         await callback.message.edit_text(
-            text=pm_tracker_text,
-            reply_markup=get_pm_tracker_menu(),
+            text=pm_trucker_text,
+            reply_markup=get_pm_trucker_menu(),
             parse_mode="Markdown"
         )
         await callback.answer()
     except Exception as e:
-        logger.error(f"Error showing PM Tracker menu: {e}")
-        await callback.answer("❌ Error loading PM Tracker")
+        logger.error(f"Error showing PM TRUCKER menu: {e}")
+        await callback.answer("❌ Error loading PM TRUCKER")
 
 @router.callback_query(lambda c: c.data == "pm_view_all_vehicles")
 async def show_all_vehicles(callback: CallbackQuery):
@@ -199,8 +201,8 @@ async def refresh_cache(callback: CallbackQuery):
 
         if vehicles:
             await callback.message.edit_text(
-                text=f"🚛 **PM TRACKER**\n\n✅ **Data Refreshed!** Updated {len(vehicles)} vehicles.\n\nSelect an option:",
-                reply_markup=get_pm_tracker_menu(),
+                text=f"🚛 **PM TRUCKER**\n\n✅ **Data Refreshed!** Updated {len(vehicles)} vehicles.\n\nSelect an option:",
+                reply_markup=get_pm_trucker_menu(),
                 parse_mode="Markdown"
             )
             await callback.answer(f"✅ Refreshed {len(vehicles)} vehicles!")
@@ -360,3 +362,37 @@ async def handle_pm_vehicle_location(callback: CallbackQuery):
     )
 
     await callback.answer()
+    
+@router.message(Command("logs"))
+async def show_logs(message: Message):
+    """Admin command: show recent location logs"""
+    if message.from_user.id not in settings.ADMIN:
+        await message.answer("⛔ You don’t have permission to view logs.")
+        return
+
+    logs = read_logs(limit=10)  # last 10 entries
+    if not logs:
+        await message.answer("📭 No logs found.")
+        return
+
+    text_lines = ["📑 **Recent Location Logs:**\n"]
+    for entry in logs:
+        line = (
+            f"👤 User: `{entry['user_id']}`\n"
+            f"🚛 Vehicle: `{entry['vehicle_id']}`\n"
+            f"📍 Type: {entry['location_type']}\n"
+            f"🏠 Address: {entry['address']}\n"
+            f"🕐 Time: {entry['timestamp']}\n"
+            "───────────────"
+        )
+        text_lines.append(line)
+
+    text = "\n".join(text_lines)
+    await message.answer(text, parse_mode="Markdown")
+    
+@router.message()
+async def some_handler(message: Message):
+    if settings.is_admin(message.from_user.id):
+        await message.answer("✅ You are an admin!")
+    else:
+        await message.answer("⛔ Access denied.")

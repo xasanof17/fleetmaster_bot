@@ -3,7 +3,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
-def get_pm_tracker_menu() -> InlineKeyboardMarkup:
+def get_pm_trucker_menu() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.add(InlineKeyboardButton(text="🚛 View All Vehicles", callback_data="pm_view_all_vehicles"))
     b.add(InlineKeyboardButton(text="🔍 Search Vehicle", callback_data="pm_search_vehicle"))
@@ -15,7 +15,7 @@ def get_pm_tracker_menu() -> InlineKeyboardMarkup:
 
 def get_back_to_pm_keyboard() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.add(InlineKeyboardButton(text="🔙 Back to PM Tracker", callback_data="pm_tracker"))
+    b.add(InlineKeyboardButton(text="🔙 Back to PM TRUCKER", callback_data="pm_trucker"))
     return b.as_markup()
 
 
@@ -46,7 +46,7 @@ def get_vehicles_list_keyboard(vehicles: List[Dict[str, Any]], page: int = 1, pe
     else:
         b.adjust(1)
 
-    b.add(InlineKeyboardButton(text="🔙 Back to PM Tracker", callback_data="pm_tracker"))
+    b.add(InlineKeyboardButton(text="🔙 Back to PM TRUCKER", callback_data="pm_trucker"))
     return b.as_markup()
 
 
@@ -67,7 +67,7 @@ def get_search_options_keyboard() -> InlineKeyboardMarkup:
     b.add(InlineKeyboardButton(text="🔢 Search by VIN", callback_data="pm_search_by:vin"))
     b.add(InlineKeyboardButton(text="🚗 Search by Plate", callback_data="pm_search_by:plate"))
     b.add(InlineKeyboardButton(text="🔍 Search All Fields", callback_data="pm_search_by:all"))
-    b.add(InlineKeyboardButton(text="🔙 Back to PM Tracker", callback_data="pm_tracker"))
+    b.add(InlineKeyboardButton(text="🔙 Back to PM TRUCKER", callback_data="pm_trucker"))
     b.adjust(1)
     return b.as_markup()
 

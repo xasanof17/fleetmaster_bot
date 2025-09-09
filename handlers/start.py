@@ -19,7 +19,7 @@ async def cmd_start(message: Message):
 
 Your comprehensive fleet management assistant powered by Samsara Cloud.
 
-🔹 **PM TRACKER** - View vehicle information
+🔹 **PM TRUCKER** - View vehicle information
 🔹 **Real-time Data** - Get up-to-date fleet info  
 🔹 **Easy Navigation** - Simple button interface
 
@@ -52,7 +52,7 @@ async def cmd_help(callback: CallbackQuery):
 
 **Available Features:**
 
-🚛 **PM TRACKER**
+🚛 **PM TRUCKER**
 • View all vehicles in your fleet
 • Get detailed vehicle information
 • See VIN, plate number, year, name, and odometer
@@ -64,7 +64,7 @@ async def cmd_help(callback: CallbackQuery):
 • Search all fields at once
 
 **How to Use:**
-1. Click **PM TRACKER** from main menu
+1. Click **PM TRUCKER** from main menu
 2. Choose **View All Vehicles** to see your fleet
 3. Or choose **Search Vehicle** to find specific vehicles
 4. Select any vehicle to view detailed information
@@ -110,7 +110,7 @@ async def show_main_menu(callback: CallbackQuery):
 Your fleet management command center.
 
 **Current Features:**
-🚛 **PM TRACKER** - Vehicle information and details
+🚛 **PM TRUCKER** - Vehicle information and details
 🔍 **Search** - Find vehicles by name, VIN, or plate
 ⚡ **Fast Performance** - Cached data for instant responses
 

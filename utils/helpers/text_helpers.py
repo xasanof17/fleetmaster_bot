@@ -1,17 +1,29 @@
 from typing import List, Dict, Optional
 from datetime import datetime
 from .vehicle_helpers import extract_odometer_miles
+import pytz
 
+DEFAULT_TZ = pytz.timezone("Asia/Tashkent")
 
-def format_timestamp(timestamp: Optional[str] = None) -> str:
+def format_timestamp(timestamp: str, tz: pytz.timezone = DEFAULT_TZ) -> str:
+    """
+    Convert ISO timestamp (UTC) into given timezone (default Asia/Tashkent).
+    Format: DD.MM.YY HH:MM:SS
+    """
     if not timestamp:
-        return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        return "Unknown time"
+
     try:
-        dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-        return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+        # parse UTC time from Samsara
+        dt_utc = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+
+        # convert to target timezone
+        dt_local = dt_utc.astimezone(tz)
+
+        # format output
+        return dt_local.strftime("%d.%m.%y %H:%M:%S")
     except Exception:
         return timestamp
-
 
 def format_odometer_mi(miles: Optional[int]) -> str:
     if miles is None:
@@ -58,7 +70,7 @@ def format_vehicle_info(vehicle: Dict[str, any]) -> str:
 
     last_updated = vehicle.get("lastUpdated") or vehicle.get("updatedAt")
     last_updated = format_timestamp(last_updated)
-    refreshed_at = datetime.utcnow().strftime("%H:%M:%S UTC")
+    refreshed_at = format_timestamp(datetime.utcnow().utcnow().isoformat() + "Z")
 
     return f"""🚛 **Vehicle Information**
 
