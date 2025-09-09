@@ -21,6 +21,8 @@ from utils.helpers import (
 from utils.logger_location import (log_location_request, read_logs)
 from utils.logger import get_logger
 from utils.registration_cache import build_registration_cache, get_registration_file_id
+from aiogram.exceptions import TelegramBadRequest
+from utils.reg_index import index_file, find_latest_for_vehicle
 
 logger = get_logger(__name__)
 router = Router()
@@ -155,7 +157,7 @@ This might be due to:
         vehicle_info = format_vehicle_info(vehicle)
         await callback.message.edit_text(
             text=vehicle_info,
-            reply_markup=get_vehicle_details_keyboard(vehicle_id, vehicle.get("name", "")),
+            reply_markup=get_vehicle_details_keyboard(vehicle_id, vehicle.get("name")),
             parse_mode="Markdown"
         )
 
@@ -365,39 +367,54 @@ async def handle_pm_vehicle_location(callback: CallbackQuery):
 
     await callback.answer()
 
+# Index PDFs when posted in the channel (after bot was added)
+@router.channel_post(F.chat.id == int(settings.CHANNEL_ID), F.document)
+async def index_channel_pdf(message: Message):
+    doc = message.document
+    fname = (doc.file_name or "").lower()
+    # We only index files like 1030-REG-2026.pdf
+    if fname.endswith(".pdf") and "-reg-" in fname:
+        index_file(file_name=fname, file_id=doc.file_id, message_id=message.message_id)
+        # Optional: small ack in logs (avoid replying in channel)
+        # logger.info(f"Indexed registration file: {fname}")
+
 @router.callback_query(F.data.startswith("pm_vehicle_reg:"))
-async def send_registration_file(callback: CallbackQuery):
-    """Send registration PDF for a vehicle using cache"""
-    vehicle_id = callback.data.split(":", 1)[1]
-    logger.info(f"📄 User {callback.from_user.id} requested registration file for vehicle {vehicle_id}")
+async def handle_registration_file(callback: CallbackQuery):
+    """Send registration PDF for a vehicle"""
+    await callback.answer()
+    # Immediately disable the UI by removing inline keyboard
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest:
+        pass
+    except Exception:
+        pass
 
-    # 1️⃣ Try cache
-    message_id = get_registration_file_id(vehicle_id)
+    # Callback data format: pm_vehicle_reg:<vehicle_name>
+    parts = callback.data.split(":", 1)
+    vehicle_name = parts[1] if len(parts) > 1 else ""
 
-    # 2️⃣ If not cached → rebuild
-    if not message_id:
-        logger.info(f"Cache miss for vehicle {vehicle_id}, rebuilding cache...")
-        updated = await build_registration_cache(callback.bot)
-        logger.info(f"Cache rebuilt with {len(updated)} entries")
-        message_id = get_registration_file_id(vehicle_id)
-
-    # 3️⃣ If still not found
-    if not message_id:
-        await callback.message.answer(f"❌ Registration file not found for vehicle {vehicle_id}")
-        await callback.answer()
-        logger.warning(f"No registration file found for {vehicle_id}")
+    key = vehicle_name.strip()
+    if not key:
+        await callback.message.answer("❌ Cannot determine vehicle name for registration file.")
         return
 
-    # 4️⃣ Copy file from channel to user
-    try:
-        await callback.bot.copy_message(
-            chat_id=callback.message.chat.id,
-            from_chat_id=settings.CHANNEL_ID,
-            message_id=message_id
+    result = find_latest_for_vehicle(key)
+    if not result:
+        await callback.message.answer(
+            f"❌ Registration file for **{key}** not found.\n\n"
+            "👉 Make sure the PDF (like `1030-REG-2026.pdf`) is posted in your channel "
+            "and the bot is an admin.\nRepost the file if needed.",
+            parse_mode="Markdown",
         )
-        await callback.answer("📄 Registration file sent")
-        logger.info(f"Sent registration file for {vehicle_id} (msg_id={message_id})")
+        return
+
+    file_id, file_name = result
+    try:
+        await callback.message.answer_document(
+            document=file_id,
+            caption=f"📄 {file_name}",
+        )
     except Exception as e:
-        logger.error(f"Error sending registration file for {vehicle_id}: {e}")
-        await callback.message.answer("⚠️ Error fetching registration file.")
-        await callback.answer()
+        logger.error(f"Failed to send registration file for {key}: {e}")
+        await callback.message.answer("⚠️ Failed to send the registration file.")
