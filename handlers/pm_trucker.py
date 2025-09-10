@@ -368,14 +368,34 @@ async def handle_pm_vehicle_location(callback: CallbackQuery):
     await callback.answer()
 
 # Index PDFs when posted in the channel (after bot was added)
-@router.channel_post(F.chat.id == int(settings.CHANNEL_ID), F.document)
+@router.channel_post(F.document)
 async def index_channel_pdf(message: Message):
-    doc = message.document
-    fname = (doc.file_name or "").lower()
-    if fname.endswith(".pdf") and "-reg-" in fname:
-        logger.info(f"Indexing file {fname} (file_id={doc.file_id}, msg_id={message.message_id})")
-        index_file(file_name=fname, file_id=doc.file_id, message_id=message.message_id)
+    """Index registration PDFs posted in the channel"""
+    try:
+        chat_id = message.chat.id
+        doc = message.document
+        fname = (doc.file_name or "").lower() if doc.file_name else ""
 
+        logger.info(f"📥 Channel post detected in chat_id={chat_id}, file={fname}")
+
+        # Only handle the configured channel
+        if str(chat_id) != str(settings.CHANNEL_ID):
+            logger.warning(f"Ignored file from chat_id={chat_id}, expected {settings.CHANNEL_ID}")
+            return
+
+        # Only accept PDFs like 1030-REG-2026.pdf
+        if fname.endswith(".pdf") and "-reg-" in fname:
+            index_file(
+                file_name=fname,
+                file_id=doc.file_id,
+                message_id=message.message_id
+            )
+            logger.info(f"✅ Indexed registration file: {fname}")
+        else:
+            logger.info(f"⚠️ Skipped non-registration file: {fname}")
+
+    except Exception as e:
+        logger.error(f"❌ Failed to index PDF: {e}")
         
 @router.callback_query(F.data.startswith("pm_vehicle_reg:"))
 async def handle_registration_file(callback: CallbackQuery):

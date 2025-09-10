@@ -1,53 +1,56 @@
 import json
-import re
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Tuple, Optional
 
 INDEX_FILE = Path("logs/reg_index.json")
-INDEX_FILE.parent.mkdir(exist_ok=True)
+INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-def index_file(file_name: str, file_id: str, message_id: int):
-    """Save or update an indexed PDF in JSON storage"""
+
+def _load_index() -> dict:
+    """Load index file or return empty dict"""
+    if INDEX_FILE.exists():
+        try:
+            return json.loads(INDEX_FILE.read_text())
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_index(data: dict) -> None:
+    """Save index file safely"""
     try:
-        if INDEX_FILE.exists():
-            data = json.loads(INDEX_FILE.read_text())
-        else:
-            data = {}
-
-        # always normalize file name
-        file_name = file_name.strip()
-
-        data[file_name] = {
-            "file_id": file_id,
-            "message_id": message_id,
-        }
-
         INDEX_FILE.write_text(json.dumps(data, indent=2))
     except Exception as e:
-        print(f"[RegIndex] Failed to index {file_name}: {e}")
+        print(f"[reg_index] Failed to save index: {e}")
+
+
+def index_file(file_name: str, file_id: str, message_id: int) -> None:
+    """
+    Add or update an entry in the index.
+    File name is used as key.
+    """
+    data = _load_index()
+    data[file_name] = {
+        "file_id": file_id,
+        "message_id": message_id,
+    }
+    _save_index(data)
 
 
 def find_latest_for_vehicle(vehicle_key: str) -> Optional[Tuple[str, str]]:
     """
-    Find the latest registration file for a vehicle by matching
-    the vehicle number anywhere in the filename.
-    Returns (file_id, file_name) or None.
+    Find the latest indexed file that starts with the given vehicle_key.
+    Returns: (file_id, file_name) or None
     """
-    if not INDEX_FILE.exists():
+    data = _load_index()
+    matches = [
+        (fname, meta)
+        for fname, meta in data.items()
+        if fname.startswith(vehicle_key.lower())
+    ]
+    if not matches:
         return None
 
-    try:
-        data = json.loads(INDEX_FILE.read_text())
-        # Normalize to digits (e.g. "5071" from "Truck 5071")
-        digits = "".join(re.findall(r"\d+", vehicle_key))
-
-        for fname, info in reversed(list(data.items())):  # newest last
-            if digits and digits in fname:
-                return info["file_id"], fname
-            if vehicle_key.lower() in fname.lower():
-                return info["file_id"], fname
-
-        return None
-    except Exception as e:
-        print(f"[RegIndex] Failed lookup for {vehicle_key}: {e}")
-        return None
+    # pick the last inserted (latest)
+    fname, meta = matches[-1]
+    return meta["file_id"], fname
