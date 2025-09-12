@@ -76,3 +76,32 @@ def get_search_options_keyboard() -> InlineKeyboardMarkup:
 def get_search_results_keyboard(results: List[Dict[str, Any]], search_query: str, search_type: str, page: int = 1, per_page: int = 5) -> InlineKeyboardMarkup:
     # Build keyboard similar to vehicles list but for search results
     return get_vehicles_list_keyboard(results, page=page, per_page=per_page)
+
+def get_vehicles_page_keyboard(
+    vehicles: List[Dict[str, Any]],
+    page: int,
+    has_next: bool,
+    end_cursor: Optional[str]
+) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+
+    for v in vehicles:
+        vid = v.get("id", "")
+        name = v.get("name", "Unknown")
+        plate = v.get("licensePlate", "No plate")
+        text = f"{name} ({plate})"
+        b.add(InlineKeyboardButton(text=text[:50], callback_data=f"pm_vehicle_details:{vid}"))
+
+    row = []
+    if page > 1:
+        row.append(InlineKeyboardButton(text="⬅️ Previous", callback_data=f"pm_vehicles_page:{page-1}"))
+    row.append(InlineKeyboardButton(text=f"{page}", callback_data="pm_page_info"))
+    if has_next and end_cursor:
+        row.append(InlineKeyboardButton(text="Next ➡️", callback_data=f"pm_vehicles_page:{page+1}:{end_cursor}"))
+    for btn in row:
+        b.add(btn)
+
+    b.adjust(*([1] * len(vehicles) + [len(row)]))
+    b.add(InlineKeyboardButton(text="🔙 Back to PM TRUCKER", callback_data="pm_trucker"))
+
+    return b.as_markup()

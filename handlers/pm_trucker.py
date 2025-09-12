@@ -1,9 +1,8 @@
 import asyncio
-import re
+import os
 from config.settings import settings
-from aiogram import Router, types, F
-from aiogram.types import CallbackQuery, Message
-from aiogram.filters import Command
+from aiogram import Router, F
+from aiogram.types import CallbackQuery,  FSInputFile
 from services.samsara_service import samsara_service
 from keyboards.pm_trucker import (
     get_pm_trucker_menu,
@@ -19,14 +18,14 @@ from utils.helpers import (
     build_live_location_message,
 )
 from utils.logger_location import (log_location_request, read_logs)
+
 from utils.logger import get_logger
-from utils.registration_cache import build_registration_cache, get_registration_file_id
-from aiogram.exceptions import TelegramBadRequest
-from utils.reg_index import index_file, find_latest_for_vehicle
 
 logger = get_logger(__name__)
 router = Router()
 LIVE_UPDATE_INTERVAL = 30
+
+FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "files")
 
 @router.callback_query(lambda c: c.data == "pm_trucker")
 async def show_pm_trucker(callback: CallbackQuery):
@@ -259,8 +258,8 @@ async def handle_static(callback: CallbackQuery):
         await callback.message.answer_location(latitude=lat, longitude=lon)
 
         # build & send human-readable message + keyboard
-        msg, kb = build_static_location_message(vehicle, location)
-        await callback.message.answer(text=msg, reply_markup=kb, parse_mode="Markdown")
+        msg, _ = build_static_location_message(vehicle, location)
+        await callback.message.answer(text=msg, parse_mode="Markdown")
 
         # log to file
         try:
@@ -306,8 +305,8 @@ async def handle_live(callback: CallbackQuery):
         )
 
         # 2️⃣ send address/time text
-        msg, kb = build_live_location_message(vehicle, location)
-        await callback.message.answer(msg, reply_markup=kb, parse_mode="Markdown")
+        msg, _ = build_live_location_message(vehicle, location)
+        await callback.message.answer(msg, parse_mode="Markdown")
 
         # 3️⃣ log request
         log_location_request(
@@ -366,54 +365,40 @@ async def handle_pm_vehicle_location(callback: CallbackQuery):
     )
 
     await callback.answer()
-
-# Index PDFs when posted in the channel (after bot was added)
-@router.channel_post(F.document)
-async def index_channel_pdf(message: Message):
-    """Index registration PDFs posted in the channel"""
-    try:
-        chat_id = message.chat.id
-        doc = message.document
-        fname = (doc.file_name or "").lower() if doc.file_name else ""
-
-        logger.info(f"📥 Channel post detected in chat_id={chat_id}, file={fname}")
-
-        # Only handle the configured channel
-        if str(chat_id) != str(settings.CHANNEL_ID):
-            logger.warning(f"Ignored file from chat_id={chat_id}, expected {settings.CHANNEL_ID}")
-            return
-
-        # Only accept PDFs like 1030-REG-2026.pdf
-        if fname.endswith(".pdf") and "-reg-" in fname:
-            index_file(
-                file_name=fname,
-                file_id=doc.file_id,
-                message_id=message.message_id
-            )
-            logger.info(f"✅ Indexed registration file: {fname}")
-        else:
-            logger.info(f"⚠️ Skipped non-registration file: {fname}")
-
-    except Exception as e:
-        logger.error(f"❌ Failed to index PDF: {e}")
-        
+      
+# ---------------- REGISTRATION FILE HANDLER ----------------
 @router.callback_query(F.data.startswith("pm_vehicle_reg:"))
 async def handle_registration_file(callback: CallbackQuery):
+    """Send registration PDF for a vehicle from local files/ folder"""
     await callback.answer()
-    try:
-        await callback.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
 
     vehicle_name = callback.data.split(":", 1)[1]
-    logger.info(f"User requested reg file for vehicle={vehicle_name}")
+    logger.info(f"User {callback.from_user.id} requested registration file for {vehicle_name}")
 
-    result = find_latest_for_vehicle(vehicle_name)
-    logger.info(f"Lookup result for {vehicle_name}: {result}")
+    found_file = None
+    try:
+        available_files = os.listdir(FILES_DIR)
+        for fname in available_files:
+            if fname.lower().endswith(".pdf") and vehicle_name.lower() in fname.lower():
+                found_file = os.path.join(FILES_DIR, fname)
+                break
+    except Exception as e:
+        logger.error(f"Error reading files directory {FILES_DIR}: {e}")
+        await callback.message.answer("❌ Error accessing registration files.")
+        return
 
-    if not result:
+    if not found_file:
         await callback.message.answer(f"❌ Registration file for **{vehicle_name}** not found.")
         return
 
-    file_id, file_name = result
-    await callback.message.answer_document(document=file_id, caption=f"📄 {file_name}")
+    try:
+        # ✅ Correct way: wrap with FSInputFile
+        document = FSInputFile(found_file)
+        await callback.message.answer_document(
+            document=document,
+            caption=f"📄 Registration File for {vehicle_name}"
+        )
+        logger.info(f"✅ Sent {found_file} to user {callback.from_user.id}")
+    except Exception as e:
+        logger.error(f"Error sending registration file {found_file}: {e}")
+        await callback.message.answer("❌ Error sending registration file.")
