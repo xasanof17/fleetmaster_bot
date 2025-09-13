@@ -15,7 +15,7 @@ def get_pm_trucker_menu() -> InlineKeyboardMarkup:
 
 def get_back_to_pm_keyboard() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.add(InlineKeyboardButton(text="🔙 Back to PM TRUCKER", callback_data="pm_trucker"))
+    b.add(InlineKeyboardButton(text="🔙 Back to TRUCK INFORMATION", callback_data="pm_trucker"))
     return b.as_markup()
 
 
@@ -46,7 +46,7 @@ def get_vehicles_list_keyboard(vehicles: List[Dict[str, Any]], page: int = 1, pe
     else:
         b.adjust(1)
 
-    b.add(InlineKeyboardButton(text="🔙 Back to PM TRUCKER", callback_data="pm_trucker"))
+    b.add(InlineKeyboardButton(text="🔙 Back to TRUCK INFORMATION", callback_data="pm_trucker"))
     return b.as_markup()
 
 
@@ -68,7 +68,7 @@ def get_search_options_keyboard() -> InlineKeyboardMarkup:
     b.add(InlineKeyboardButton(text="🔢 Search by VIN", callback_data="pm_search_by:vin"))
     b.add(InlineKeyboardButton(text="🚗 Search by Plate", callback_data="pm_search_by:plate"))
     b.add(InlineKeyboardButton(text="🔍 Search All Fields", callback_data="pm_search_by:all"))
-    b.add(InlineKeyboardButton(text="🔙 Back to PM TRUCKER", callback_data="pm_trucker"))
+    b.add(InlineKeyboardButton(text="🔙 Back to TRUCK INFORMATION", callback_data="pm_trucker"))
     b.adjust(1)
     return b.as_markup()
 
@@ -102,6 +102,6 @@ def get_vehicles_page_keyboard(
         b.add(btn)
 
     b.adjust(*([1] * len(vehicles) + [len(row)]))
-    b.add(InlineKeyboardButton(text="🔙 Back to PM TRUCKER", callback_data="pm_trucker"))
+    b.add(InlineKeyboardButton(text="🔙 Back to TRUCK INFORMATION", callback_data="pm_trucker"))
 
     return b.as_markup()

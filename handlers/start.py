@@ -5,6 +5,7 @@ from aiogram import Router
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart, Command
 from keyboards import get_main_menu_keyboard, get_help_keyboard
+from keyboards.documents import documents_menu_kb
 from utils.logger import get_logger
 
 logger = get_logger("handlers.start")
@@ -19,7 +20,7 @@ async def cmd_start(message: Message):
 
 Your comprehensive fleet management assistant powered by Samsara Cloud.
 
-🔹 **PM TRUCKER** - View vehicle information
+🔹 **TRUCK INFORMATION** - View vehicle information
 🔹 **Real-time Data** - Get up-to-date fleet info  
 🔹 **Easy Navigation** - Simple button interface
 
@@ -52,7 +53,7 @@ async def cmd_help(callback: CallbackQuery):
 
 **Available Features:**
 
-🚛 **PM TRUCKER**
+🚛 **TRUCK INFORMATION**
 • View all vehicles in your fleet
 • Get detailed vehicle information
 • See VIN, plate number, year, name, and odometer
@@ -64,7 +65,7 @@ async def cmd_help(callback: CallbackQuery):
 • Search all fields at once
 
 **How to Use:**
-1. Click **PM TRUCKER** from main menu
+1. Click **TRUCK INFORMATION** from main menu
 2. Choose **View All Vehicles** to see your fleet
 3. Or choose **Search Vehicle** to find specific vehicles
 4. Select any vehicle to view detailed information
@@ -110,7 +111,7 @@ async def show_main_menu(callback: CallbackQuery):
 Your fleet management command center.
 
 **Current Features:**
-🚛 **PM TRUCKER** - Vehicle information and details
+🚛 **TRUCK INFORMATION** - Vehicle information and details
 🔍 **Search** - Find vehicles by name, VIN, or plate
 ⚡ **Fast Performance** - Cached data for instant responses
 
@@ -130,3 +131,7 @@ Choose an option below:
         logger.error(f"Error showing main menu: {e}")
         await callback.answer("❌ Error loading main menu")
 
+# Handle main menu "Documents" button
+@router.message(lambda m: m.text == "📂 Documents")
+async def open_documents(message: Message):
+    await message.answer("📂 Choose a document type:", reply_markup=documents_menu_kb())

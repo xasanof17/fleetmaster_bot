@@ -7,6 +7,7 @@ from .pm_trucker import (
     get_search_options_keyboard,
     get_search_results_keyboard,
 )
+from .documents import documents_menu_kb
 
 __all__ = [
     "get_main_menu_keyboard",
@@ -17,4 +18,5 @@ __all__ = [
     "get_back_to_pm_keyboard",
     "get_search_options_keyboard",
     "get_search_results_keyboard",
+    "documents_menu_kb",
 ]

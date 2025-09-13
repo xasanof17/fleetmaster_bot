@@ -9,6 +9,7 @@ from keyboards.pm_trucker import (
     get_vehicle_details_keyboard,
     get_search_options_keyboard,
     get_vehicles_list_keyboard,
+    get_back_to_pm_keyboard
 )
 from utils.helpers import (
     format_vehicle_info,
@@ -29,12 +30,12 @@ FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "files")
 
 @router.callback_query(lambda c: c.data == "pm_trucker")
 async def show_pm_trucker(callback: CallbackQuery):
-    """Show PM TRUCKER main menu"""
+    """Show TRUCK INFORMATION main menu"""
     
     await callback.answer()
-    logger.info(f"User {callback.from_user.id} accessed PM TRUCKER")
+    logger.info(f"User {callback.from_user.id} accessed TRUCK INFORMATION")
 
-    pm_trucker_text = """🚛 **PM TRUCKER**
+    pm_trucker_text = """🚛 **TRUCK INFORMATION**
 
 Vehicle information and management system.
 
@@ -54,8 +55,8 @@ Select an option to continue:"""
         )
         await callback.answer()
     except Exception as e:
-        logger.error(f"Error showing PM TRUCKER menu: {e}")
-        await callback.answer("❌ Error loading PM TRUCKER")
+        logger.error(f"Error showing TRUCK INFORMATION menu: {e}")
+        await callback.answer("❌ Error loading TRUCK INFORMATION")
 
 @router.callback_query(lambda c: c.data == "pm_view_all_vehicles")
 async def show_all_vehicles(callback: CallbackQuery):
@@ -204,7 +205,7 @@ async def refresh_cache(callback: CallbackQuery):
 
         if vehicles:
             await callback.message.edit_text(
-                text=f"🚛 **PM TRUCKER**\n\n✅ **Data Refreshed!** Updated {len(vehicles)} vehicles.\n\nSelect an option:",
+                text=f"🚛 **TRUCK INFORMATION**\n\n✅ **Data Refreshed!** Updated {len(vehicles)} vehicles.\n\nSelect an option:",
                 reply_markup=get_pm_trucker_menu(),
                 parse_mode="Markdown"
             )
