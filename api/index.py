@@ -143,15 +143,15 @@ def format_alert(alert_name: str, data: dict) -> str:
 
     return f"⚠️ <b>{alert_name}</b>\n\n<pre>{data}</pre>"
 
-# ===================== TELEGRAM HANDLERS =====================
+# ===================== TELEGRAM HANDLER =====================
 async def handle(request):
     """Telegram webhook handler"""
     body = await request.json()
     update = types.Update(**body)
     await dp.feed_update(bot, update)
-    return web.Response()
+    return web.Response(text="ok")
 
-# ===================== SAMSARA ALERT HANDLER =====================
+# ===================== SAMSARA HANDLER =====================
 async def handle_samsara(request):
     """Samsara webhook handler"""
     data = await request.json()
@@ -181,11 +181,9 @@ async def handle_samsara(request):
 
     return web.Response(text="ok")
 
-# ===================== APP ROUTES =====================
-def vercel_app(request):
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(handle(request))
-
-app = web.Application()
-app.router.add_post("/", handle)               # Telegram webhook
-app.router.add_post("/samsara", handle_samsara)  # Samsara alerts
+# ===================== CREATE APP =====================
+def create_app():
+    app = web.Application()
+    app.router.add_post("/", handle)                 # Telegram webhook
+    app.router.add_post("/samsara", handle_samsara)  # Samsara alerts
+    return app
