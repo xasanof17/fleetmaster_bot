@@ -182,7 +182,7 @@ async def handle_samsara(request):
     return web.Response(text="ok")
 
 # ===================== CREATE APP =====================
-def create_app():
+def create_app(argv=None):
     app = web.Application()
     app.router.add_post("/", handle)                 # Telegram webhook
     app.router.add_post("/samsara", handle_samsara)  # Samsara alerts
