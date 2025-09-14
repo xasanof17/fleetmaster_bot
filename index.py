@@ -1,19 +1,40 @@
 import os
 import logging
+import aiohttp
 from aiohttp import web
 from aiogram import Bot
+from dotenv import load_dotenv
+from aiogram.client.bot import DefaultBotProperties
+
+load_dotenv()
 
 # ===================== LOGGING =====================
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO,
+    level=LOG_LEVEL,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[logging.StreamHandler()]
 )
+logger = logging.getLogger(__name__)
 
 # ===================== BOT INIT =====================
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-GROUP_ID = int(os.getenv("GROUP_ID", "-1001234567890"))  # default test group
-bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not TELEGRAM_BOT_TOKEN:
+    raise ValueError("TELEGRAM_BOT_TOKEN is not set in environment variables")
+bot = Bot(
+    token=TELEGRAM_BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode="HTML")
+)
+
+GROUP_ID = int(os.getenv("GROUP_ID", "-1001234567890"))  # default group
+
+# ===================== SAMSARA CONFIG =====================
+SAMSARA_API_TOKEN = os.getenv("SAMSARA_API_TOKEN")
+SAMSARA_BASE_URL = os.getenv("SAMSARA_BASE_URL", "https://api.samsara.com")
+
+HEADERS = {
+    "Authorization": f"Bearer {SAMSARA_API_TOKEN}"
+}
 
 # ===================== TOPIC MAPPING =====================
 TOPIC_MAP = {
@@ -68,31 +89,70 @@ def format_alert(alert_name: str, data: dict) -> str:
 
     return f"⚠️ <b>{alert_name}</b>\n\n<pre>{data}</pre>"
 
+# ===================== GET VEHICLE LOCATION FROM SAMSARA =====================
+async def get_vehicle_location(vehicle_id: str) -> dict:
+    url = f"{SAMSARA_BASE_URL}/fleet/vehicles/states"
+    params = {"vehicleIds": vehicle_id}
+    async with aiohttp.ClientSession(headers=HEADERS) as session:
+        async with session.get(url, params=params) as resp:
+            if resp.status == 200:
+                result = await resp.json()
+                states = result.get("data", [])
+                if states:
+                    lat = states[0].get("latitude")
+                    lon = states[0].get("longitude")
+                    return {"latitude": lat, "longitude": lon}
+    return {}
+
 # ===================== SAMSARA HANDLER =====================
 async def handle_samsara(request):
     data = await request.json()
     alert_name = data.get("alertName", "").strip()
-
-    logging.info("Received Samsara alert: %s", alert_name)
-
     chat_info = TOPIC_MAP.get(alert_name, (GROUP_ID, None))
     chat_id, thread_id = chat_info
     text = format_alert(alert_name, data)
 
+    send_kwargs = {"chat_id": chat_id}
+    if thread_id:
+        send_kwargs["message_thread_id"] = thread_id
+
     try:
-        await bot.send_message(
-            chat_id=chat_id,
-            text=text,
-            message_thread_id=thread_id
-        )
-        logging.info("✅ Alert sent to chat_id=%s thread_id=%s", chat_id, thread_id)
+        # Send the main alert
+        await bot.send_message(text=text, **send_kwargs)
+        logger.info("✅ Alert sent to chat_id=%s thread_id=%s", chat_id, thread_id)
+
+        # Send live location
+        location = data.get("location", {})
+        latitude = location.get("latitude")
+        longitude = location.get("longitude")
+
+        # If not in webhook, fetch latest from Samsara API
+        vehicle_id = data.get("vehicle", {}).get("id")
+        if (latitude is None or longitude is None) and vehicle_id:
+            loc_data = await get_vehicle_location(vehicle_id)
+            latitude = loc_data.get("latitude")
+            longitude = loc_data.get("longitude")
+
+        if latitude is not None and longitude is not None:
+            await bot.send_location(latitude=latitude, longitude=longitude, **send_kwargs)
+            logger.info("📍 Live location sent: (%s, %s)", latitude, longitude)
+
     except Exception as e:
-        logging.error("❌ Failed to send alert %s: %s", alert_name, str(e))
+        logger.exception("❌ Failed to send alert %s", alert_name)
 
     return web.Response(text="ok")
 
-# ===================== APP =====================
+# ===================== CREATE APP =====================
 def create_app(argv=None):
     app = web.Application()
-    app.router.add_post("/samsara", handle_samsara)  # only samsara webhook
+    app.router.add_post("/samsara", handle_samsara)
     return app
+
+# ===================== REQUIRED ENVIRONMENT VARIABLES =====================
+"""
+TELEGRAM_BOT_TOKEN=<your bot token>
+SAMSARA_API_TOKEN=<your samsara API token>
+GROUP_ID=-1003067846983
+LOG_LEVEL=INFO
+SAMSARA_BASE_URL=https://api.samsara.com
+"""
