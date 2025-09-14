@@ -24,6 +24,7 @@ class Settings:
     # extract only digits (ignore weird characters)
     ADMIN: List[int] = [int(x) for x in re.findall(r"\d+", raw_admins)],
     CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))
+    GROUP_ID = int(os.getenv("GROUP_ID", "0"))
 
     @classmethod
     def validate(cls) -> bool:

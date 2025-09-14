@@ -1,1 +1,1 @@
-web: python -m aiohttp.web -H 0.0.0.0 -P $PORT index:app
+web: python -m aiohttp.web index:create_app --port=$PORT --host=0.0.0.0

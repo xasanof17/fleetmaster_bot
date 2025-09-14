@@ -4,3 +4,4 @@ python-dotenv
 loguru
 load-dotenv
 pytz
+pydantic
