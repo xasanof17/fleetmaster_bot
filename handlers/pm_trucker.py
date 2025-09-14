@@ -18,7 +18,7 @@ from utils.helpers import (
     build_static_location_message,
     build_live_location_message,
 )
-from utils.logger_location import (log_location_request, read_logs)
+from utils.logger_location import log_location_request
 
 from utils.logger import get_logger
 
@@ -26,7 +26,7 @@ logger = get_logger(__name__)
 router = Router()
 LIVE_UPDATE_INTERVAL = 30
 
-FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "files")
+FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "files", "registrations_2026")
 
 @router.callback_query(lambda c: c.data == "pm_trucker")
 async def show_pm_trucker(callback: CallbackQuery):
