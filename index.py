@@ -3,10 +3,9 @@ import logging
 import aiohttp
 from aiohttp import web
 from aiogram import Bot
-from aiogram.client.bot import DefaultBotProperties
 from dotenv import load_dotenv
+from aiogram.client.bot import DefaultBotProperties
 
-# Load .env for local development
 load_dotenv()
 
 # ===================== LOGGING =====================
@@ -22,13 +21,12 @@ logger = logging.getLogger(__name__)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN is not set in environment variables")
-
 bot = Bot(
     token=TELEGRAM_BOT_TOKEN,
     default=DefaultBotProperties(parse_mode="HTML")
 )
 
-GROUP_ID = int(os.getenv("GROUP_ID", "-1003067846983"))
+GROUP_ID = int(os.getenv("GROUP_ID", "-1003067846983"))  # default group
 
 # ===================== SAMSARA CONFIG =====================
 SAMSARA_API_TOKEN = os.getenv("SAMSARA_API_TOKEN")
@@ -36,25 +34,26 @@ SAMSARA_BASE_URL = os.getenv("SAMSARA_BASE_URL", "https://api.samsara.com")
 
 HEADERS = {"Authorization": f"Bearer {SAMSARA_API_TOKEN}"}
 
-# ===================== TOPIC MAP =====================
+# ===================== TOPIC MAPPING =====================
+# Map alert names to Telegram topic IDs (message_thread_id)
 TOPIC_MAP = {
-    "Spartak Shop": (GROUP_ID, 14),
-    "Scheduled Maintenance by Odometer": (GROUP_ID, 16),
-    "Vehicle Severely Speeding Above Limit": (GROUP_ID, 3),
-    "SPEEDING ZONE": (GROUP_ID, 3),
-    "45 SPEED ZONE AHEAD": (GROUP_ID, 3),
-    "LINE ZONE": (GROUP_ID, 12),
-    "LEFT LANE": (GROUP_ID, 12),
-    "Weigh_Station_Zone": (GROUP_ID, 12),
-    "Policy Violation Occurred": (GROUP_ID, 12),
-    "Engine Coolant Temperature is above 200F": (GROUP_ID, 7),
-    "Panic Button": (GROUP_ID, 7),
-    "Vehicle Engine Idle": (GROUP_ID, 7),
-    "Harsh Event": (GROUP_ID, 7),
-    "DASHCAM DISCONNECTED": (GROUP_ID, 9),
-    "Gateway Unplugged": (GROUP_ID, 9),
-    "Fuel up": (GROUP_ID, 5),
-    "Fuel level is getting down from 40%": (GROUP_ID, 5),
+    "Vehicle Severely Speeding Above Limit": (GROUP_ID, 1111),
+    "SPEEDING ZONE": (GROUP_ID, 1111),
+    "45 SPEED ZONE AHEAD": (GROUP_ID, 1111),
+    "LINE ZONE": (GROUP_ID, 2222),
+    "LEFT LANE": (GROUP_ID, 2222),
+    "Weigh_Station_Zone": (GROUP_ID, 2222),
+    "Policy Violation Occurred": (GROUP_ID, 2222),
+    "Engine Coolant Temperature is above 200F": (GROUP_ID, 3333),
+    "Panic Button": (GROUP_ID, 3333),
+    "Vehicle Engine Idle": (GROUP_ID, 3333),
+    "Harsh Event": (GROUP_ID, 3333),
+    "DASHCAM DISCONNECTED": (GROUP_ID, 4444),
+    "Gateway Unplugged": (GROUP_ID, 4444),
+    "Fuel up": (GROUP_ID, 5555),
+    "Fuel level is getting down from 40%": (GROUP_ID, 5555),
+    "Spartak Shop": (GROUP_ID, 6666),
+    "Scheduled Maintenance by Odometer": (GROUP_ID, 7777),
 }
 
 # ===================== FORMAT ALERT =====================
@@ -89,7 +88,7 @@ def format_alert(alert_name: str, data: dict) -> str:
 
     return f"⚠️ <b>{alert_name}</b>\n\n<pre>{data}</pre>"
 
-# ===================== GET VEHICLE LOCATION =====================
+# ===================== GET VEHICLE LOCATION FROM SAMSARA =====================
 async def get_vehicle_location(vehicle_id: str) -> dict:
     url = f"{SAMSARA_BASE_URL}/fleet/vehicles/states"
     params = {"vehicleIds": vehicle_id}
@@ -99,16 +98,17 @@ async def get_vehicle_location(vehicle_id: str) -> dict:
                 result = await resp.json()
                 states = result.get("data", [])
                 if states:
-                    return {
-                        "latitude": states[0].get("latitude"),
-                        "longitude": states[0].get("longitude")
-                    }
+                    lat = states[0].get("latitude")
+                    lon = states[0].get("longitude")
+                    return {"latitude": lat, "longitude": lon}
     return {}
 
 # ===================== SAMSARA HANDLER =====================
 async def handle_samsara(request):
     data = await request.json()
-    alert_name = data.get("alertName", "").strip()
+    alert_name = data.get("alertName") or data.get("data", {}).get("name", "")
+    alert_name = alert_name.strip()
+
     chat_info = TOPIC_MAP.get(alert_name, (GROUP_ID, None))
     chat_id, thread_id = chat_info
     text = format_alert(alert_name, data)
@@ -118,21 +118,22 @@ async def handle_samsara(request):
         send_kwargs["message_thread_id"] = thread_id
 
     try:
+        # Send alert
         await bot.send_message(text=text, **send_kwargs)
         logger.info("✅ Alert sent to chat_id=%s thread_id=%s", chat_id, thread_id)
 
-        # Live location
+        # Send live location
         location = data.get("location", {})
         latitude = location.get("latitude")
         longitude = location.get("longitude")
-        vehicle_id = data.get("vehicle", {}).get("id")
 
+        vehicle_id = data.get("vehicle", {}).get("id")
         if (latitude is None or longitude is None) and vehicle_id:
             loc_data = await get_vehicle_location(vehicle_id)
             latitude = loc_data.get("latitude")
             longitude = loc_data.get("longitude")
 
-        if latitude and longitude:
+        if latitude is not None and longitude is not None:
             await bot.send_location(latitude=latitude, longitude=longitude, **send_kwargs)
             logger.info("📍 Live location sent: (%s, %s)", latitude, longitude)
 
@@ -142,14 +143,16 @@ async def handle_samsara(request):
     return web.Response(text="ok")
 
 # ===================== CREATE APP =====================
-def create_app():
+def create_app(argv=None):
     app = web.Application()
     app.router.add_post("/samsara", handle_samsara)
     return app
 
-# ===================== RUN SERVER =====================
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8080))
-    web.run_app(create_app(), port=port)
-    
-    logger.info("🚀 Server started on port %s", port)
+# ===================== REQUIRED ENVIRONMENT VARIABLES =====================
+"""
+TELEGRAM_BOT_TOKEN=<your bot token>
+SAMSARA_API_TOKEN=<your samsara API token>
+GROUP_ID=-1003067846983
+LOG_LEVEL=INFO
+SAMSARA_BASE_URL=https://api.samsara.com
+"""
