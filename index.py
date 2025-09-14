@@ -151,3 +151,5 @@ def create_app():
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8080))
     web.run_app(create_app(), port=port)
+    
+    logger.info("🚀 Server started on port %s", port)
