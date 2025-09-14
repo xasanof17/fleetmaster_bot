@@ -3,8 +3,6 @@ import asyncio
 import logging
 from aiohttp import web
 from aiogram import types
-from core.bot import create_dispatcher, create_bot
-from config.settings import settings
 
 # ===================== LOGGING =====================
 logging.basicConfig(
@@ -16,41 +14,40 @@ logging.basicConfig(
     ]
 )
 
-bot = create_bot()
-dp = create_dispatcher()
+GROUP_ID = int(os.getenv("GROUP_ID", "-1001234567890"))  # default group ID for testing
 
 # ===================== TOPIC MAPPING =====================
 TOPIC_MAP = {
     # Spartak Shop
-    "Spartak Shop": (settings.GROUP_ID, 14),
+    "Spartak Shop": (GROUP_ID, 14),
 
     # Scheduled Maintenance
-    "Scheduled Maintenance by Odometer": (settings.GROUP_ID, 16),
+    "Scheduled Maintenance by Odometer": (GROUP_ID, 16),
 
     # Speeding
-    "Vehicle Severely Speeding Above Limit": (settings.GROUP_ID, 3),
-    "SPEEDING ZONE": (settings.GROUP_ID, 3),
-    "45 SPEED ZONE AHEAD": (settings.GROUP_ID, 3),
+    "Vehicle Severely Speeding Above Limit": (GROUP_ID, 3),
+    "SPEEDING ZONE": (GROUP_ID, 3),
+    "45 SPEED ZONE AHEAD": (GROUP_ID, 3),
 
     # Weight Stations
-    "LINE ZONE": (settings.GROUP_ID, 12),
-    "LEFT LANE": (settings.GROUP_ID, 12),
-    "Weigh_Station_Zone": (settings.GROUP_ID, 12),
-    "Policy Violation Occurred": (settings.GROUP_ID, 12),
+    "LINE ZONE": (GROUP_ID, 12),
+    "LEFT LANE": (GROUP_ID, 12),
+    "Weigh_Station_Zone": (GROUP_ID, 12),
+    "Policy Violation Occurred": (GROUP_ID, 12),
 
     # Critical Maintenance
-    "Engine Coolant Temperature is above 200F": (settings.GROUP_ID, 7),
-    "Panic Button": (settings.GROUP_ID, 7),
-    "Vehicle Engine Idle": (settings.GROUP_ID, 7),
-    "Harsh Event": (settings.GROUP_ID, 7),
+    "Engine Coolant Temperature is above 200F": (GROUP_ID, 7),
+    "Panic Button": (GROUP_ID, 7),
+    "Vehicle Engine Idle": (GROUP_ID, 7),
+    "Harsh Event": (GROUP_ID, 7),
 
     # Dashcams / Gateway
-    "DASHCAM DISCONNECTED": (settings.GROUP_ID, 9),
-    "Gateway Unplugged": (settings.GROUP_ID, 9),
+    "DASHCAM DISCONNECTED": (GROUP_ID, 9),
+    "Gateway Unplugged": (GROUP_ID, 9),
 
     # Low Fuel / DEF
-    "Fuel up": (settings.GROUP_ID, 5),
-    "Fuel level is getting down from 40%": (settings.GROUP_ID, 5),
+    "Fuel up": (GROUP_ID, 5),
+    "Fuel level is getting down from 40%": (GROUP_ID, 5),
 }
 
 # ===================== FORMAT ALERTS =====================
@@ -163,7 +160,7 @@ async def handle_samsara(request):
     chat_info = TOPIC_MAP.get(alert_name)
     if not chat_info:
         logging.warning("No topic mapping found for alert: %s", alert_name)
-        chat_info = (settings.GROUP_ID, 999)  # fallback
+        chat_info = (GROUP_ID, 999)  # fallback
 
     chat_id, thread_id = chat_info
     text = format_alert(alert_name, data)
