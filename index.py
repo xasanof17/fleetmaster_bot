@@ -61,14 +61,13 @@ TOPIC_MAP = {
 
 # ===================== FORMAT ALERT =====================
 def format_alert(alert_name: str, data: dict) -> str:
-    vehicle = data.get("vehicle", {}).get("name", "Unknown Vehicle")
-    driver = data.get("driver", {}).get("name", "Unknown Driver")
-    location = data.get("location", {}).get("formattedAddress", "Unknown Location")
-    speed = data.get("vehicle", {}).get("speed", "N/A")
-    odometer = data.get("vehicle", {}).get("odometerMeters", "N/A")
-    fuel = data.get("vehicle", {}).get("fuelPercent", "N/A")
+    vehicle = data.get("vehicle", {}).get("name") or data.get("vehicleName") or "Unknown Vehicle"
+    driver = data.get("driver", {}).get("name") or data.get("driverName") or "Unknown Driver"
+    location = data.get("location", {}).get("formattedAddress") or data.get("address", {}).get("formattedAddress") or "Unknown Location"
+    speed = data.get("vehicle", {}).get("speed") or "N/A"
+    odometer = data.get("vehicle", {}).get("odometerMeters") or "N/A"
+    fuel = data.get("vehicle", {}).get("fuelPercent") or "N/A"
 
-    # ======== Templates for each topic ========
     if alert_name == "Spartak Shop":
         return f"🏬 <b>Geofence Entry: Spartak Shop</b>\n• Vehicle: <b>{vehicle}</b>\n• Driver: {driver}\n• Location: {location}"
     elif alert_name == "Scheduled Maintenance by Odometer":
@@ -90,7 +89,8 @@ def format_alert(alert_name: str, data: dict) -> str:
     elif alert_name in ["Fuel up", "Fuel level is getting down from 40%"]:
         return f"⛽ <b>Low Fuel Alert</b>\n• Vehicle: <b>{vehicle}</b>\n• Driver: {driver}\n• Fuel Level: {fuel}%"
 
-    return f"⚠️ <b>{alert_name}</b>\n<pre>{data}</pre>"
+    # Fallback: unknown alert
+    return f"⚠️ <b>{alert_name}</b>\n• Vehicle: <b>{vehicle}</b>\n• Driver: {driver}</b>\n• Location: {location}"
 
 # ===================== GET VEHICLE LOCATION =====================
 async def get_vehicle_location(vehicle_id: str) -> dict:
