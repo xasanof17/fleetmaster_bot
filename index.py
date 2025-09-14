@@ -5,6 +5,7 @@ from aiohttp import web
 from aiogram import Bot
 from aiogram.client.bot import DefaultBotProperties
 from dotenv import load_dotenv
+from html import escape
 
 load_dotenv()
 
@@ -61,12 +62,12 @@ TOPIC_MAP = {
 
 # ===================== FORMAT ALERT =====================
 def format_alert(alert_name: str, data: dict) -> str:
-    vehicle = data.get("vehicle", {}).get("name") or data.get("vehicleName") or "Unknown Vehicle"
-    driver = data.get("driver", {}).get("name") or data.get("driverName") or "Unknown Driver"
-    location = data.get("location", {}).get("formattedAddress") or data.get("address", {}).get("formattedAddress") or "Unknown Location"
-    speed = data.get("vehicle", {}).get("speed") or "N/A"
-    odometer = data.get("vehicle", {}).get("odometerMeters") or "N/A"
-    fuel = data.get("vehicle", {}).get("fuelPercent") or "N/A"
+    vehicle = escape(data.get("vehicle", {}).get("name") or "Unknown Vehicle")
+    driver = escape(data.get("driver", {}).get("name") or "Unknown Driver")
+    location = escape(data.get("location", {}).get("formattedAddress") or "Unknown Location")
+    speed = escape(str(data.get("vehicle", {}).get("speed") or "N/A"))
+    odometer = escape(str(data.get("vehicle", {}).get("odometerMeters") or "N/A"))
+    fuel = escape(str(data.get("vehicle", {}).get("fuelPercent") or "N/A"))
 
     if alert_name == "Spartak Shop":
         return f"🏬 <b>Geofence Entry: Spartak Shop</b>\n• Vehicle: <b>{vehicle}</b>\n• Driver: {driver}\n• Location: {location}"
@@ -76,8 +77,6 @@ def format_alert(alert_name: str, data: dict) -> str:
         return f"🚨 <b>Speeding Alert</b>\n• Vehicle: <b>{vehicle}</b>\n• Driver: {driver}\n• Speed: {speed} mph\n• Location: {location}"
     elif alert_name in ["LINE ZONE", "LEFT LANE", "Weigh_Station_Zone", "Policy Violation Occurred"]:
         return f"⚖️ <b>Weight Station / Zone Alert</b>\n• Vehicle: <b>{vehicle}</b>\n• Location: {location}\n• Event: {alert_name}"
-    elif alert_name == "Engine Coolant Temperature is above 200F":
-        return f"🌡 <b>Engine Overheat</b>\n• Vehicle: <b>{vehicle}</b>\n• Driver: {driver}\n• Location: {location}"
     elif alert_name == "Panic Button":
         return f"🚨 <b>Panic Button Pressed!</b>\n• Driver: <b>{driver}</b>\n• Vehicle: {vehicle}\n• Location: {location}"
     elif alert_name == "Vehicle Engine Idle":
@@ -89,9 +88,7 @@ def format_alert(alert_name: str, data: dict) -> str:
     elif alert_name in ["Fuel up", "Fuel level is getting down from 40%"]:
         return f"⛽ <b>Low Fuel Alert</b>\n• Vehicle: <b>{vehicle}</b>\n• Driver: {driver}\n• Fuel Level: {fuel}%"
 
-    # Fallback: unknown alert
     return f"⚠️ <b>{alert_name}</b>\n• Vehicle: <b>{vehicle}</b>\n• Driver: {driver}</b>\n• Location: {location}"
-
 # ===================== GET VEHICLE LOCATION =====================
 async def get_vehicle_location(vehicle_id: str) -> dict:
     url = f"{SAMSARA_BASE_URL}/fleet/vehicles/states"
