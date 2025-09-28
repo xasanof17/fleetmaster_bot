@@ -2,7 +2,7 @@
 App entrypoint
 """
 import asyncio
-from core.bot import create_bot, create_dispatcher
+from core.bot import (create_bot, create_dispatcher)
 from utils.logger import setup_logging, get_logger
 from config import settings
 from services.samsara_service import samsara_service

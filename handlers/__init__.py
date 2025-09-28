@@ -3,5 +3,6 @@ from .start import router as start_router
 from .pm_trucker import router as pm_router
 from .search import router as search_router
 from .documents import documents_router
+from .pm_services import router as pm_services_router
 
-routers = [start_router, pm_router, search_router, documents_router]
+routers = [start_router, pm_router, search_router, documents_router, pm_services_router]

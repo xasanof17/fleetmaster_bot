@@ -5,6 +5,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.add(InlineKeyboardButton(text="🚛 TRUCK INFORMATION", callback_data="pm_trucker"))
+    builder.add(InlineKeyboardButton(text="🚚 PM SERVICES", callback_data="pm_services"))
     builder.add(InlineKeyboardButton(text="📂 Documents", callback_data="documents"))
     builder.add(InlineKeyboardButton(text="❓ Help", callback_data="help"))
     builder.adjust(1)

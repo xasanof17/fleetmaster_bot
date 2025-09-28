@@ -26,10 +26,17 @@ class DocumentSearch(StatesGroup):
 # 📂 Entry point
 @documents_router.callback_query(F.data == "documents")
 async def show_documents_menu(callback: CallbackQuery):
+    doc_intro = (
+    "📂 **DOCUMENTS** – Fleet & Compliance Files\n\n"
+    "Access key paperwork in one place:\n"
+    "• Registrations and state permits\n"
+    "• Lease agreements and annual inspections\n\n"
+    "Select a document category below to view or download:"
+)
     await callback.message.edit_text(
-        "📂 Choose a document type:",
+        doc_intro,
         reply_markup=documents_menu_kb(),
-        parse_mode=None
+        parse_mode="Markdown"
     )
     await callback.answer()
 

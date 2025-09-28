@@ -32,21 +32,26 @@ async def show_welcome(message: Message):
 
 Your comprehensive fleet management assistant powered by Samsara Cloud.
 
-🔹 **TRUCK INFORMATION** - View vehicle information
-🔹 **Real-time Data** - Get up-to-date fleet info  
-🔹 **Easy Navigation** - Simple button interface
+🔹 **TRUCK INFORMATION** – View detailed vehicle information  
+🔹 **PM SERVICES** – Track preventive maintenance, urgent oil changes, and service schedules  
+🔹 **DOCUMENTS** – Access registrations, permits, lease agreements, and inspection records  
+🔹 **Real-time Data** – Get up-to-date fleet info  
+🔹 **Easy Navigation** – Simple button interface
 
 **Features:**
-📋 Vehicle details (VIN, Plate, Year, Name, Odometer)
-🚛 Fleet overview and selection
-🔍 Search by Name, VIN, or Plate Number
+📋 Vehicle details (VIN, Plate, Year, Name, Odometer)  
+🛠 Preventive maintenance tracking and service alerts  
+📂 Centralized document storage for fleet compliance  
+🚛 Fleet overview and quick vehicle selection  
+🔍 Search by Name, VIN, or Plate Number  
 ⚡ Fast caching for instant responses
 
 Select an option below to get started:
-    """
+    """.strip()
+
     try:
         await message.answer(
-            text=welcome_text.strip(),
+            text=welcome_text,
             reply_markup=get_main_menu_keyboard(),
             parse_mode="Markdown"
         )
@@ -104,15 +109,16 @@ async def cmd_help(callback: CallbackQuery):
         return
 
     logger.info(f"User {callback.from_user.id} requested help")
+
     help_text = """
 ❓ **FleetMaster Bot Help**
 
-**Available Features:**
+**Available Features**
 
 🚛 **TRUCK INFORMATION**
 • View all vehicles in your fleet
 • Get detailed vehicle information
-• See VIN, plate number, year, name, and odometer
+• See VIN, plate number, year, name and odometer
 
 🔍 **Search Functionality**
 • Search by vehicle name
@@ -120,21 +126,34 @@ async def cmd_help(callback: CallbackQuery):
 • Search by license plate
 • Search all fields at once
 
-**How to Use:**
-1. Click **TRUCK INFORMATION** from main menu
-2. Choose **View All Vehicles** to see your fleet
-3. Or choose **Search Vehicle** to find specific vehicles
-4. Select any vehicle to view detailed information
-5. Use navigation buttons to browse
+🚚 **PM SERVICES**
+• View trucks needing 📌*Urgent Oil Change*
+• View trucks scheduled for routine 🟡*Oil Change*
+• Search 🔢 by unit number (message or /slash)
+• Browse all preventive-maintenance records
 
-**Navigation:**
-🏠 **Main Menu** - Return to dashboard
-🔙 **Back** - Go to previous screen
-🔄 **Refresh** - Update current data with latest info
-    """
+📂 **Documents**
+• Access company and vehicle documents in one place
+• View registrations, state permits, lease agreements
+• Open annual inspection forms and more
+• Quick navigation back to the dashboard
+
+**How to Use**
+1. Click 🚛**TRUCK INFORMATION** to browse or search your fleet
+2. Click 🚚**PM SERVICES** to see upcoming maintenance or urgent oil changes
+3. Click 📂**Documents** to open the document center and pick a category
+4. Use search boxes or inline commands (like `/5071`) to jump directly to a truck
+5. Use navigation buttons (Main Menu, Back, Refresh) to move around
+
+**Navigation**
+🏠 **Main Menu** – Return to dashboard  
+🔙 **Back** – Go to previous screen  
+🔄 **Refresh** – Update current data with the latest info
+    """.strip()
+
     try:
         await callback.message.edit_text(
-            text=help_text.strip(),
+            text=help_text,
             reply_markup=get_help_keyboard(),
             parse_mode="Markdown"
         )
@@ -153,21 +172,25 @@ async def show_main_menu(callback: CallbackQuery):
         return
 
     logger.info(f"User {callback.from_user.id} requested main menu")
+
     main_menu_text = """
 🚛 **FleetMaster Dashboard**
 
 Your fleet management command center.
 
 **Current Features:**
-🚛 **TRUCK INFORMATION** - Vehicle information and details
-🔍 **Search** - Find vehicles by name, VIN, or plate
-⚡ **Fast Performance** - Cached data for instant responses
+🚛 **TRUCK INFORMATION** – View your entire fleet and get detailed vehicle info  
+🚚 **PM SERVICES** – Track preventive maintenance, urgent oil changes, and service schedules  
+📂 **DOCUMENTS** – Access registrations, permits, lease agreements, and inspection records  
+🔍 **Search** – Find vehicles by name, VIN, or plate instantly  
+⚡ **Fast Performance** – Cached data for near-instant responses
 
 Choose an option below:
-    """
+    """.strip()
+
     try:
         await callback.message.edit_text(
-            text=main_menu_text.strip(),
+            text=main_menu_text,
             reply_markup=get_main_menu_keyboard(),
             parse_mode="Markdown"
         )
@@ -184,4 +207,11 @@ async def open_documents(message: Message):
     if not is_authorized_today(message.from_user.id):
         await message.answer(require_auth_message())
         return
-    await message.answer("📂 Choose a document type:", reply_markup=documents_menu_kb())
+    doc_intro = (
+    "📂 **DOCUMENTS** – Fleet & Compliance Files\n\n"
+    "Access key paperwork in one place:\n"
+    "• Registrations and state permits\n"
+    "• Lease agreements and annual inspections\n\n"
+    "Select a document category below to view or download:"
+)
+    await message.answer(doc_intro, reply_markup=documents_menu_kb(), parse_mode="Markdown")

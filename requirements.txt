@@ -4,3 +4,5 @@ python-dotenv
 loguru
 load-dotenv
 pytz
+gspread_asyncio
+google-auth
