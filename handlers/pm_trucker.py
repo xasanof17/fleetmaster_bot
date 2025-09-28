@@ -4,6 +4,7 @@ from config.settings import settings
 from aiogram import Router, F
 from aiogram.types import CallbackQuery,  FSInputFile
 from services.samsara_service import samsara_service
+from services.google_ops_service import google_ops_service
 from keyboards.pm_trucker import (
     get_pm_trucker_menu,
     get_vehicle_details_keyboard,
@@ -101,6 +102,17 @@ Please check your configuration and try again."""
             parse_mode="Markdown"
         )
 
+@router.callback_query(lambda c: c.data == "pm_view_all_statuses")
+async def show_all_statuses(callback: CallbackQuery):
+    await callback.answer("⏳ Fetching statuses…")
+
+    new_text = await google_ops_service.as_markdown()
+    await callback.message.answer(
+        new_text,
+        parse_mode="Markdown",
+        suppress=True
+    )
+    
 @router.callback_query(lambda c: c.data.startswith("pm_vehicles_page:"))
 async def show_vehicles_page(callback: CallbackQuery):
     """Show specific page of vehicles"""

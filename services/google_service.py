@@ -1,65 +1,51 @@
-import os, datetime, json
+import os, json, datetime
+from typing import List, Dict, Any, Tuple
 from gspread_asyncio import AsyncioGspreadClientManager
 from google.oauth2.service_account import Credentials
 
-GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON")
-SPREADSHEET_NAME  = os.getenv("PM_SPREADSHEET_NAME")
-WORKSHEET_NAME    = os.getenv("PM_WORKSHEET_NAME", "Sheet1")
-PAGE_SIZE         = 5
-
+GOOGLE_CREDS_JSON   = os.getenv("GOOGLE_CREDS_JSON")
+PM_SPREADSHEET_NAME = os.getenv("PM_SPREADSHEET_NAME")
+PM_WORKSHEET_NAME   = os.getenv("PM_WORKSHEET_NAME", "PM_TRACKER")  # adjust to your real tab name
 
 # ---- auth ----
-def get_creds():
-    creds_dict = json.loads(GOOGLE_CREDS_JSON)
+def _creds():
+    creds_dict = json.loads(GOOGLE_CREDS_JSON or "{}")
     return Credentials.from_service_account_info(
         creds_dict,
         scopes=[
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
+            "https://www.googleapis.com/auth/spreadsheets.readonly",
+            "https://www.googleapis.com/auth/drive.readonly",
         ],
     )
 
-_manager = AsyncioGspreadClientManager(get_creds)
+_manager = AsyncioGspreadClientManager(_creds)
 
-
-async def _get_all_rows():
+async def _get_all_records() -> List[Dict[str, Any]]:
+    """Always return list[dict] using header row."""
     agcm = await _manager.authorize()
-    ss   = await agcm.open(SPREADSHEET_NAME)
-    ws   = await ss.worksheet(WORKSHEET_NAME)
+    ss   = await agcm.open(PM_SPREADSHEET_NAME)
+    ws   = await ss.worksheet(PM_WORKSHEET_NAME)
     return await ws.get_all_records()
 
-
-def _format_date() -> str:
+def _now_str() -> str:
     return datetime.datetime.now().strftime("%m/%d/%Y")
 
-
-def _safe_int(value, default=0):
-    """
-    Convert to int safely: blanks, '#VALUE!' etc return default.
-    """
+def _safe_int(v, default=0) -> int:
     try:
-        return int(float(str(value).replace(",", "").strip()))
+        s = str(v).replace(",", "").strip()
+        if s == "" or s.upper() in {"#VALUE!", "N/A", "NA"}:
+            return default
+        return int(float(s))
     except Exception:
         return default
 
-
 class GooglePMService:
-    """
-    All PM logic is sheet-driven:
-      • urgent = Left <= 5000 miles OR Days <= 30  (and STATUS not BROKEN)
-      • oil    = Left <= 10000 miles (and STATUS not BROKEN)
-    """
+    """Sheet-driven PM logic with a consistent UI-facing shape."""
 
-    def _row_to_vehicle(self, r):
-        return {
-            "truck":  str(r.get("Truck Number")),
-            "status": str(r.get("STATUS", "")).strip(),
-            "left":   _safe_int(r.get("Left")),
-        }
-
-    async def get_urgent_list(self, mile_limit: int = 5000, day_limit: int = 30):
-        rows = await _get_all_rows()
-        urgent = []
+    # ------- Lists for the pinned messages -------
+    async def get_urgent_list(self, mile_limit: int = 5000, day_limit: int = 30) -> List[Dict[str, Any]]:
+        rows = await _get_all_records()
+        out: List[Dict[str, Any]] = []
         for r in rows:
             status = str(r.get("STATUS", "")).strip().upper()
             if status == "BROKEN":
@@ -67,48 +53,39 @@ class GooglePMService:
             left = _safe_int(r.get("Left"))
             days = _safe_int(r.get("Days"))
             if left <= mile_limit or days <= day_limit:
-                urgent.append({
-                    "truck":  str(r.get("Truck Number")),
-                    "left":   left,
-                    "days":   days,
-                    "status": status,
-                    "updated": _format_date()
-                })
-        return urgent
+                truck = str(r.get("Truck Number") or r.get("Truck") or "").strip()
+                if truck:
+                    out.append({"truck": truck, "left": left, "days": days, "status": status, "updated": _now_str()})
+        return out
 
-    async def get_oil_list(self, mile_limit: int = 10000):
-        rows = await _get_all_rows()
-        oil_due = []
+    async def get_oil_list(self, mile_limit: int = 10000) -> List[Dict[str, Any]]:
+        rows = await _get_all_records()
+        out: List[Dict[str, Any]] = []
         for r in rows:
             status = str(r.get("STATUS", "")).strip().upper()
             if status == "BROKEN":
                 continue
             left = _safe_int(r.get("Left"))
             if left <= mile_limit:
-                oil_due.append({
-                    "truck":  str(r.get("Truck Number")),
-                    "left":   left,
-                    "status": status,
-                    "updated": _format_date()
-                })
-        return oil_due
+                truck = str(r.get("Truck Number") or r.get("Truck") or "").strip()
+                if truck:
+                    out.append({"truck": truck, "left": left, "status": status, "updated": _now_str()})
+        return out
 
-    async def get_all(self, page: int = 1):
-        """
-        Full list (no filtering) with pagination.
-        """
-        rows = await _get_all_rows()
-        start, end = (page - 1) * PAGE_SIZE, page * PAGE_SIZE
-        sliced = rows[start:end]
-        has_next = len(rows) > end
-        return [self._row_to_vehicle(r) for r in sliced], has_next
+    # ------- Vehicles list for the keyboard (NO pagination here) -------
+    async def list_all_vehicles(self) -> List[Dict[str, str]]:
+        """Return every truck as {'id': '<unit>', 'name': 'Truck <unit>'}."""
+        rows = await _get_all_records()
+        items: List[Dict[str, str]] = []
+        for r in rows:
+            t = str(r.get("Truck Number") or r.get("Truck") or "").strip()
+            if t:
+                items.append({"id": t, "name": f"Truck {t}"})
+        return items
 
-    async def get_vehicle_details(self, truck: str):
-        """
-        Return *all* fields for a specific truck number,
-        even if status is BROKEN or anything else.
-        """
-        rows = await _get_all_rows()
+    # ------- Full details for a single truck -------
+    async def get_vehicle_details(self, truck: str) -> Dict[str, Any] | None:
+        rows = await _get_all_records()
         for r in rows:
             if str(r.get("Truck Number")) == str(truck):
                 return {
@@ -120,10 +97,8 @@ class GooglePMService:
                     "notes":          r.get("Notes"),
                     "last_history":   r.get("Last History"),
                     "latest_history": r.get("Lastest History"),
-                    "updated":        _format_date(),
+                    "updated":        _now_str(),
                 }
         return None
 
-
-# export singleton
 google_pm_service = GooglePMService()

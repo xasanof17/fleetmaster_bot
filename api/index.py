@@ -1,7 +1,7 @@
 import os
 import asyncio
 from aiohttp import web
-from aiogram import Bot, Dispatcher, types
+from aiogram import types
 from core.bot import create_dispatcher, create_bot
 
 TOKEN = os.getenv("BOT_TOKEN")

@@ -9,7 +9,7 @@ from typing import Dict, Any, List
 from datetime import datetime
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
-
+from aiogram.exceptions import TelegramBadRequest
 from services import google_pm_service
 from utils import get_logger, format_pm_vehicle_info
 from keyboards.pm_services import (
@@ -21,15 +21,6 @@ from keyboards.pm_services import (
 
 logger = get_logger(__name__)
 router = Router()
-
-# ---------- Helpers ----------
-def _normalize_row(row: Dict[str, Any]) -> Dict[str, Any]:
-    return {k.lower().replace(" ", "").replace("\n", ""): v for k, v in row.items()}
-
-def _vehicle_dict(row: Dict[str, Any]) -> Dict[str, Any]:
-    n = _normalize_row(row)
-    truck = str(n.get("trucknumber") or n.get("truck") or "").strip()
-    return {"id": truck, "name": f"Truck {truck}"}
 
 def _build_template(rows: List[Dict[str, Any]], title: str, icon: str) -> str:
     """
@@ -71,6 +62,7 @@ async def pm_services_menu(cb: CallbackQuery):
 # ---------- Urgent ----------
 @router.callback_query(F.data == "pm_urgent")
 async def urgent_list(cb: CallbackQuery):
+    await cb.answer("⚡ Loading urgent list...")
     rows = await google_pm_service.get_urgent_list()
     # Only those actually marked urgent (skip “Good”, skip broken)
     urgent_only = [
@@ -86,6 +78,7 @@ async def urgent_list(cb: CallbackQuery):
 # ---------- Oil Change ----------
 @router.callback_query(F.data == "pm_oil")
 async def oil_change_list(cb: CallbackQuery):
+    await cb.answer("⚡ Loading oil change list...")
     rows = await google_pm_service.get_oil_list()
     oil_only = [
         r for r in rows
@@ -100,14 +93,23 @@ async def oil_change_list(cb: CallbackQuery):
 # ---------- Show All ----------
 @router.callback_query(F.data.startswith("pm_all"))
 async def show_all(cb: CallbackQuery):
-    page = int(cb.data.split(":")[1]) if ":" in cb.data else 1
-    rows, _ = await google_pm_service.get_all(page)
-    vehicles = [_vehicle_dict(r) for r in rows]
-    await cb.message.edit_text(
-        f"🚛 PM Sheet Vehicles ({len(vehicles)} shown)",
-        reply_markup=get_pm_vehicles_keyboard(vehicles, page=page, per_page=5),
-    )
+    logger.info(f"User {cb.from_user.id} requested all list of trucks")
+    await cb.answer("⚡ Loading all vehicles...")
 
+    page = int(cb.data.split(":")[1]) if ":" in cb.data else 1
+    per_page = 10
+
+    # ✅ fetch *all* vehicles once (no pagination here)
+    vehicles = await google_pm_service.list_all_vehicles()
+
+    total = len(vehicles)
+    shown = max(0, min(per_page, total - (page - 1) * per_page))
+    title = f"🚛 PM Sheet Vehicles ({shown} shown of {total})"
+
+    await cb.message.edit_text(
+        title,
+        reply_markup=get_pm_vehicles_keyboard(vehicles, page=page, per_page=per_page),
+    )
 # ---------- Search by Unit ----------
 @router.callback_query(F.data == "pm_search")
 async def pm_search_start(cb: CallbackQuery):
@@ -128,7 +130,7 @@ async def pm_search_result(msg: Message):
         )
         return
     text = format_pm_vehicle_info(details, full=True)
-    await msg.answer(text, reply_markup=get_pm_vehicle_details_keyboard(unit))
+    await msg.answer(text, reply_markup=get_pm_vehicle_details_keyboard(unit), parse_mode="Markdown")
 
 # ---------- Slash-command style /<unit> ----------
 @router.message(F.text.regexp(r"^/\d+$"))
@@ -142,18 +144,38 @@ async def pm_search_slash(msg: Message):
         )
         return
     text = format_pm_vehicle_info(details, full=True)
-    await msg.answer(text, reply_markup=get_pm_vehicle_details_keyboard(unit))
+    await msg.answer(text, reply_markup=get_pm_vehicle_details_keyboard(unit), parse_mode="Markdown")
 
-# ---------- Inline button detail ----------
 @router.callback_query(F.data.startswith("pm_sheet_vehicle:"))
 async def vehicle_detail(cb: CallbackQuery):
-    truck = cb.data.split(":")[1]
-    details = await google_pm_service.get_vehicle_details(truck)
+    truck = cb.data.split(":")
+    truck_id = truck[1]
+    page = int(truck[2]) if len(truck) > 2 else 1
+    
+    details = await google_pm_service.get_vehicle_details(truck_id)
     if not details:
         await cb.answer("Vehicle not found in PM sheet.", show_alert=True)
         return
-    text = format_pm_vehicle_info(details, full=True)
-    await cb.message.edit_text(
-        text,
-        reply_markup=get_pm_vehicle_details_keyboard(truck)
-    )
+
+    new_text   = format_pm_vehicle_info(details, full=True)
+    new_markup = get_pm_vehicle_details_keyboard(truck_id, page)
+
+    # ✅ compare before editing
+    if cb.message.text != new_text or cb.message.reply_markup != new_markup:
+        try:
+            await cb.message.edit_text(
+                new_text,
+                parse_mode="Markdown",
+                reply_markup=new_markup,
+                suppress=True
+            )
+            await cb.answer("✅ Data refreshed")
+        except TelegramBadRequest as e:
+            # just in case, swallow the 'not modified' error
+            if "message is not modified" in str(e).lower():
+                await cb.answer("🔄 Already up to date")
+            else:
+                raise
+    else:
+        # nothing changed at all
+        await cb.answer("🔄 Already up to date")

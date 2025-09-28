@@ -1,3 +1,4 @@
+# keyboards/pm_trucker.py
 from typing import List, Dict, Any, Optional
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -5,6 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 def get_pm_trucker_menu() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
+    b.add(InlineKeyboardButton(text="⚡️ Statuses List", callback_data="pm_view_all_statuses"))
     b.add(InlineKeyboardButton(text="🚛 View All Vehicles", callback_data="pm_view_all_vehicles"))
     b.add(InlineKeyboardButton(text="🔍 Search Vehicle", callback_data="pm_search_vehicle"))
     b.add(InlineKeyboardButton(text="🔄 Refresh Data", callback_data="pm_refresh_cache"))
