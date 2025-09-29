@@ -96,42 +96,28 @@ async def _read_all_sections() -> Dict[str, Any]:
 # services/google_ops_service.py
 async def get_data_for_vehicle_info(unit: str) -> Dict[str, str]:
     """
-    Return {'status': str, 'driver': str} for the given truck number.
-    Looks for headers containing key words, case-insensitive.
+    Returns {'status': str, 'driver': str} for the given truck number.
+    Reads row 3 as header and data from row 4 onward.
     """
     agcm = await _manager.authorize()
     ss   = await agcm.open(OPS_SPREADSHEET_NAME)
     ws   = await ss.worksheet(OPS_WORKSHEET_NAME)
 
+    # Grab all rows, skip the first two banner rows
     all_vals = await ws.get_all_values()
-    if len(all_vals) < 3:
+    if len(all_vals) < 4:
         return {"status": "N/A", "driver": "N/A"}
 
-    # Row 2 is header row in your sheet
-    raw_headers = [h.strip() for h in all_vals[1]]
-    headers_upper = [h.upper() for h in raw_headers]
+    headers = [h.strip() for h in all_vals[2]]  # row 3 is the real header
+    data_rows = all_vals[3:]                   # from row 4 down
 
-    # find indexes by keyword, ignoring case/extra spaces
-    def find_idx(keyword: str) -> int:
-        for i, h in enumerate(headers_upper):
-            if keyword in h:
-                return i
-        raise ValueError(f"Header containing '{keyword}' not found")
-
-    try:
-        idx_truck  = find_idx("TRUCK")
-        idx_status = find_idx("CURRENT")
-        idx_driver = find_idx("DRIVER")
-    except ValueError:
-        return {"status": "N/A", "driver": "N/A"}
-
-    for row in all_vals[2:]:
-        if len(row) <= idx_truck:
-            continue
-        if str(row[idx_truck]).strip() == str(unit).strip():
-            status = row[idx_status].strip() if len(row) > idx_status else "N/A"
-            driver = row[idx_driver].strip() if len(row) > idx_driver else "N/A"
-            return {"status": status or "N/A", "driver": driver or "N/A"}
+    for row in data_rows:
+        record = {headers[i]: row[i] if i < len(row) else "" for i in range(len(headers))}
+        if str(record.get("TRUCK NUMBER")).strip() == str(unit).strip():
+            return {
+                "status": record.get("CURRENT STATUS", "N/A") or "N/A",
+                "driver": record.get("DRIVER NAME", "N/A") or "N/A"
+            }
 
     return {"status": "N/A", "driver": "N/A"}
 
