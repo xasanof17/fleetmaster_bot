@@ -1,7 +1,9 @@
 from typing import List, Dict, Optional
+from services.google_ops_service import get_data_for_vehicle_info
 from datetime import datetime
 from .vehicle_helpers import extract_odometer_miles
 import pytz
+
 
 DEFAULT_TZ = pytz.timezone("Asia/Tashkent")
 
@@ -53,34 +55,41 @@ def format_vehicle_list(vehicles: List[Dict[str, any]], limit: int = 5) -> str:
     return message
 
 
-def format_vehicle_info(vehicle: Dict[str, any]) -> str:
-    name = vehicle.get("name", "N/A")
-    make = vehicle.get("make", "N/A")
-    vin = vehicle.get("vin") or vehicle.get("externalIds", {}).get("samsara.vin", "N/A")
+async def format_vehicle_info(vehicle: Dict[str, any]) -> str:
+    """
+    Combine Samsara vehicle info with Ops CURRENT STATUS + Driver Name.
+    """
+    name  = vehicle.get("name", "N/A")
+    make  = vehicle.get("make", "N/A")
+    vin   = vehicle.get("vin") or vehicle.get("externalIds", {}).get("samsara.vin", "N/A")
     plate = vehicle.get("licensePlate", "N/A")
-    year = vehicle.get("year", "N/A")
-    status = vehicle.get("status", vehicle.get("engineState", "N/A"))
+    year  = vehicle.get("year", "N/A")
 
-    odometer = (
+    # 🔑 Pull Ops status + driver
+    unit_number = vehicle.get("name") or vehicle.get("id")
+    ops_data    = await get_data_for_vehicle_info(unit_number)
+    ops_status  = ops_data["status"]
+    driver_name = ops_data["driver"]
+    
+    odometer_text  = format_odometer_mi(
         vehicle.get("odometer")
         or vehicle.get("odometer_miles")
         or extract_odometer_miles(vehicle)
     )
-    odometer_text = format_odometer_mi(odometer)
 
-    last_updated = vehicle.get("lastUpdated") or vehicle.get("updatedAt")
-    last_updated = format_timestamp(last_updated)
-    refreshed_at = format_timestamp(datetime.utcnow().utcnow().isoformat() + "Z")
-
-    return f"""🚛 **Vehicle Information**
-
-📋 **Name**: {name} - {make}
-🏷️ **VIN**: {vin}
-🔢 **Plate**: {plate}
-📅 **Year**: {year}
-📊 **Status**: {status}
-🛣️ **Odometer**: {odometer_text}
-
-🕐 **Last Updated**: {last_updated}
-⏳ **Refreshed at**: {refreshed_at}
-""".strip()
+    last_updated = format_timestamp(vehicle.get("lastUpdated") or vehicle.get("updatedAt"))
+    refreshed_at = format_timestamp(datetime.utcnow().isoformat() + "Z")
+    
+    return (
+            f"-------- 🚛 **VEHICLE INFORMATION** --------\n\n"
+            f"📋 **NAME**: {name} - {make}\n"  
+            f"👤 **DRIVER**: {driver_name}\n"
+            f"🏷️ **VIN**: {vin}\n"
+            f"🔢 **PLATE**: {plate}\n"
+            f"📅 **YEAR**: {year}\n"
+            f"📊 **CURRENT STATUS**: {ops_status}\n"
+            f"🛣️ **ODOMETER**: {odometer_text}\n"
+            f"=============================\n"
+            f"🕐 **Last Updated**: {last_updated}\n"
+            f"⏳ **Refreshed at**: {refreshed_at}"
+    )

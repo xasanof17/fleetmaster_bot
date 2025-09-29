@@ -166,7 +166,7 @@ This might be due to:
             )
             return
 
-        vehicle_info = format_vehicle_info(vehicle)
+        vehicle_info = await format_vehicle_info(vehicle)
         await callback.message.edit_text(
             text=vehicle_info,
             reply_markup=get_vehicle_details_keyboard(vehicle_id, vehicle.get("name")),
