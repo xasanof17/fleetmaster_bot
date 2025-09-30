@@ -4,7 +4,6 @@ import datetime
 from typing import Dict, List, Any
 from gspread_asyncio import AsyncioGspreadClientManager
 from google.oauth2.service_account import Credentials
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ── Environment ──────────────────────────────────────────────
 GOOGLE_CREDS_JSON    = os.getenv("GOOGLE_CREDS_JSON")
@@ -157,24 +156,24 @@ class GoogleOpsService:
         road_lines  = "\n".join(d["broken_road"]) or "None"
 
         return (
-            f"======= **DELTA TRUCKS** =======\n"
-            f"**TOTAL** : {d['total']}\n"
-            f"**HOME TIME** : {d['home_time']}\n"
-            f"**BROKEN TRUCK** : {d['broken']}\n"
-            f"**GETTING READY** : {d['getting_ready']}\n"
-            f"**ACCIDENT** : {d['accident']}\n"
-            f"**TOTAL LOST** : {d['lost']}\n"
-            f"**ACTIVE** : {d['active']}\n"
+            f"======= *DELTA TRUCKS* =======\n"
+            f"*TOTAL* : {d['total']}\n"
+            f"*HOME TIME* : {d['home_time']}\n"
+            f"*BROKEN TRUCK* : {d['broken']}\n"
+            f"*GETTING READY* : {d['getting_ready']}\n"
+            f"*ACCIDENT* : {d['accident']}\n"
+            f"*TOTAL LOST* : {d['lost']}\n"
+            f"*ACTIVE* : {d['active']}\n"
             f"=========================\n"
-            f"**TOW TRUCKS** : {len(d['tow_list'])}\n"
+            f"*TOW TRUCKS* : {len(d['tow_list'])}\n"
             f"{tow_lines}\n\n"
-            f"**OWNER OPERATOR** : {len(d['owner_list'])}\n"
+            f"*OWNER OPERATOR* : {len(d['owner_list'])}\n"
             f"{owner_lines}\n"
             f"=========================\n"
-            f"**BROKEN ON THE ROAD ({len(d['broken_road'])})**:\n"
+            f"*BROKEN ON THE ROAD ({len(d['broken_road'])})*:\n"
             f"{road_lines}\n"
             f"=========================\n"
-            f"**DATE** : {d['date']}"
+            f"*DATE* : {d['date']}"
         )
 
 # Singleton export

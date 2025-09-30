@@ -3,8 +3,11 @@ import os
 from config.settings import settings
 from aiogram import Router, F
 from aiogram.types import CallbackQuery,  FSInputFile
+from aiogram.exceptions import TelegramBadRequest
+from services.group_map import TRUCK_GROUPS
 from services.samsara_service import samsara_service
 from services.google_ops_service import google_ops_service
+from services.google_service import google_pm_service
 from keyboards.pm_trucker import (
     get_pm_trucker_menu,
     get_vehicle_details_keyboard,
@@ -22,6 +25,7 @@ from utils.helpers import (
 from utils.logger_location import log_location_request
 
 from utils.logger import get_logger
+from utils.pm_formatter import format_pm_vehicle_info
 
 logger = get_logger(__name__)
 router = Router()
@@ -415,3 +419,23 @@ async def handle_registration_file(callback: CallbackQuery):
     except Exception as e:
         logger.error(f"Error sending registration file {found_file}: {e}")
         await callback.message.answer("❌ Error sending registration file.")
+        
+@router.callback_query(F.data.startswith("pm_send_group:"))
+async def auto_send_to_group(cb: CallbackQuery):
+    unit = cb.data.split(":", 1)[1].strip()
+    group_id = TRUCK_GROUPS.get(unit)
+    if not group_id:
+        await cb.answer(f"No group configured for truck {unit}", show_alert=True)
+        return
+
+    details = await google_pm_service.get_vehicle_details(unit)
+    if not details:
+        await cb.answer("Truck not found in PM sheet.", show_alert=True)
+        return
+
+    text = format_pm_vehicle_info(details, full=True)
+    try:
+        await cb.bot.send_message(group_id, text, parse_mode="Markdown")
+        await cb.answer("✅ Sent to its group")
+    except TelegramBadRequest as e:
+        await cb.answer(f"Error: {e}", show_alert=True)

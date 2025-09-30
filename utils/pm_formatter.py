@@ -37,7 +37,7 @@ def _format_vehicle_list(vehicles, title):
         # **truck** bold, *left* italic
         lines.append(f"**{truck}** – {status_icon}  *{left}*")
 
-    lines.append("=" * 22)
+    lines.append("=" * 20)
     return "\n".join(lines)
 
 
@@ -82,16 +82,16 @@ def _format_vehicle_detail(d):
         parts = [p.strip().title() for p in normalized.splitlines() if p.strip()]
         if parts:
             bullets = "\n".join(f"- _{p}_" for p in parts)
-            issues_block = f"**CURRENT ISSUES:**\n{bullets}\n"
+            issues_block = f"*CURRENT ISSUES:*\n{bullets}\n"
 
     return (
-        f"**PM SERVICE // FULL SERVICE**\n\n"
-        f"**TRUCK:** {d.get('truck')}\n"
-        f"**PM DATE:** {d.get('pm_date')}\n"
-        f"**DAYS:** {days_val} ago\n"
-        f"**STATUS:** {status_icon}\n"
-        f"**PM SHOP:** {shop_display}\n"
+        f"*PM SERVICE // FULL SERVICE*\n\n"
+        f"*TRUCK:* {d.get('truck')}\n"
+        f"*PM DATE:* {d.get('pm_date')}\n"
+        f"*DAYS:* {days_val} ago\n"
+        f"*STATUS:* {status_icon}\n"
+        f"*PM SHOP:* {shop_display}\n"
         f"{issues_block}"
         f"=========================\n"
-        f"**UPDATED:** {updated}"
+        f"*UPDATED:* {updated}"
     )

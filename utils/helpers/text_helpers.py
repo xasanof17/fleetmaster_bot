@@ -81,15 +81,15 @@ async def format_vehicle_info(vehicle: Dict[str, any]) -> str:
     refreshed_at = format_timestamp(datetime.utcnow().isoformat() + "Z")
     
     return (
-            f"-------- 🚛 **VEHICLE INFORMATION** --------\n\n"
-            f"📋 **NAME**: {name} - {make}\n"  
-            f"👤 **DRIVER**: {driver_name}\n"
-            f"🏷️ **VIN**: {vin}\n"
-            f"🔢 **PLATE**: {plate}\n"
-            f"📅 **YEAR**: {year}\n"
-            f"📊 **CURRENT STATUS**: {ops_status}\n"
-            f"🛣️ **ODOMETER**: {odometer_text}\n"
+            f"-------- 🚛 *VEHICLE INFORMATION* --------\n\n"
+            f"📋 *NAME*: {name} - {make}\n"  
+            f"👤 *DRIVER*: {driver_name}\n"
+            f"🏷️ *VIN*: {vin}\n"
+            f"🔢 *PLATE*: {plate}\n"
+            f"📅 *YEAR*: {year}\n"
+            f"📊 *CURRENT STATUS*: _{ops_status}_\n"
+            f"🛣️ *ODOMETER*: {odometer_text}\n"
             f"=============================\n"
-            f"🕐 **Last Updated**: {last_updated}\n"
-            f"⏳ **Refreshed at**: {refreshed_at}"
+            f"🕐 *Last Updated*: {last_updated}\n"
+            f"⏳ *Refreshed at*: {refreshed_at}"
     )

@@ -23,7 +23,7 @@ class Settings:
     raw_admins = raw_admins.strip("[]\"' ")
     # extract only digits (ignore weird characters)
     ADMIN: List[int] = [int(x) for x in re.findall(r"\d+", raw_admins)],
-    CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))
+    CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0")),
 
     @classmethod
     def validate(cls) -> bool:

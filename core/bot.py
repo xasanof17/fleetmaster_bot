@@ -11,6 +11,7 @@ from typing import Optional
 from config import settings
 from utils.logger import get_logger
 from services.samsara_service import samsara_service
+from middlewares.chat_guard import PrivateOnlyMiddleware
 
 logger = get_logger("core.bot")
 
@@ -31,6 +32,11 @@ def create_dispatcher() -> Dispatcher:
     logger.info("Creating Dispatcher")
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
+    
+    # ✅ attach middleware before including routers
+    dp.message.middleware(PrivateOnlyMiddleware())
+    dp.callback_query.middleware(PrivateOnlyMiddleware())
+    
     # import routers (handlers/__init__.py exposes 'routers' list)
     try:
         from handlers import routers

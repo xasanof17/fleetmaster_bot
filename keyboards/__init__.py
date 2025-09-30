@@ -8,7 +8,7 @@ from .pm_trucker import (
     get_search_options_keyboard,
     get_search_results_keyboard
 )
-from .pm_services import (get_pm_services_menu, get_pm_vehicles_keyboard, get_pm_vehicle_details_keyboard)
+from .pm_services import (get_pm_services_menu, get_pm_vehicles_keyboard, get_pm_vehicle_details_keyboard, urgent_oil_list_keyboard)
 from .documents import documents_menu_kb
 
 __all__ = [
@@ -23,5 +23,6 @@ __all__ = [
     "documents_menu_kb",
     "get_pm_services_menu",
     "get_pm_vehicles_keyboard",
-    "get_pm_vehicle_details_keyboard"
+    "get_pm_vehicle_details_keyboard",
+    "urgent_oil_list_keyboard"
 ]

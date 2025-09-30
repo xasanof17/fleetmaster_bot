@@ -25,6 +25,7 @@ def get_pm_search_keyboard() -> InlineKeyboardMarkup:
     b.adjust(1)
     return b.as_markup()
 
+
 def get_pm_vehicles_keyboard(
     vehicles: List[Dict[str, Any]],
     page: int = 1,
@@ -61,28 +62,36 @@ def get_pm_vehicles_keyboard(
         b.row(*nav_buttons)
 
     # 🔙 back button full width
-    b.row(InlineKeyboardButton(text="🔙 Back to PM Services", callback_data="pm_services"))
+    b.row(InlineKeyboardButton(text="🔙 Back to PM Services", callback_data=back_callback))
 
     return b.as_markup()
 
-# keyboards/pm_services.py
-def get_pm_vehicle_details_keyboard(vehicle_id: str, page: int = 1) -> InlineKeyboardMarkup:
+
+def get_pm_vehicle_details_keyboard(truck_id: str, page: int = 1) -> InlineKeyboardMarkup:
+    """Keyboard for a single truck detail view."""
     b = InlineKeyboardBuilder()
-    # Refresh
-    b.add(
-        InlineKeyboardButton(
-            text="🔄 Refresh",
-            callback_data=f"pm_sheet_vehicle:{vehicle_id}:{page}"
-        )
-    )
-    # 👇 Back to the same page of the vehicle list
-    b.add(
-        InlineKeyboardButton(
-            text="🔙 Back to Vehicle List",
-            callback_data=f"pm_all:{page}"
-        )
-    )
+    b.add(InlineKeyboardButton(text="🔄 Refresh", callback_data=f"pm_sheet_vehicle:{truck_id}:{page}"))
+    b.add(InlineKeyboardButton(text="📤 Send to Group", callback_data=f"pm_send_group:{truck_id}"))
+    b.add(InlineKeyboardButton(text="🔙 Back to Vehicle List", callback_data=f"pm_all:{page}"))
     b.add(InlineKeyboardButton(text="🏠 Main Menu", callback_data="main_menu"))
     b.adjust(1)
     return b.as_markup()
 
+# 🆕 NEW: keyboards for the Urgent/Oil lists with broadcast button
+def urgent_oil_list_keyboard(list_type: str) -> InlineKeyboardMarkup:
+    """
+    Inline keyboard shown under the Urgent or Oil Change list
+    list_type must be 'urgent' or 'oil'
+    """
+    b = InlineKeyboardBuilder()
+    # broadcast button sends each truck’s line to its own group
+    b.add(InlineKeyboardButton(
+        text="📤 Send list to each group",
+        callback_data=f"pm_send_list:{list_type}"
+    ))
+    b.add(InlineKeyboardButton(
+        text="🔙 Back to PM Menu",
+        callback_data="pm_services"
+    ))
+    b.adjust(1)
+    return b.as_markup()
