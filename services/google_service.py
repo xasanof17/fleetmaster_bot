@@ -1,5 +1,5 @@
-import json, datetime
-from typing import List, Dict, Any, Tuple
+import datetime
+from typing import List, Dict, Any
 from gspread_asyncio import AsyncioGspreadClientManager
 from google.oauth2.service_account import Credentials
 from config import settings
@@ -10,14 +10,12 @@ PM_WORKSHEET_NAME   = settings.PM_WORKSHEET_NAME
 
 # ---- auth ----
 def _creds():
-    creds_dict = json.loads(GOOGLE_CREDS_JSON or "{}")
-    return Credentials.from_service_account_info(
-        creds_dict,
-        scopes=[
-            "https://www.googleapis.com/auth/spreadsheets.readonly",
-            "https://www.googleapis.com/auth/drive.readonly",
-        ],
-    )
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    info = settings.GOOGLE_CREDS_JSON or {}
+    return Credentials.from_service_account_info(info, scopes=scopes)
 
 _manager = AsyncioGspreadClientManager(_creds)
 

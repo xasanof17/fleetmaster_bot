@@ -11,7 +11,9 @@ from typing import Optional
 from config import settings
 from utils.logger import get_logger
 from services.samsara_service import samsara_service
-from middlewares.chat_guard import PrivateOnlyMiddleware
+from middlewares.chat_guard import ChatGuardMiddleware
+from services.group_map import load_truck_groups
+from config import settings
 
 logger = get_logger("core.bot")
 
@@ -34,8 +36,8 @@ def create_dispatcher() -> Dispatcher:
     dp = Dispatcher(storage=storage)
     
     # ✅ attach middleware before including routers
-    dp.message.middleware(PrivateOnlyMiddleware())
-    dp.callback_query.middleware(PrivateOnlyMiddleware())
+    dp.message.middleware(ChatGuardMiddleware())
+    dp.callback_query.middleware(ChatGuardMiddleware())
     
     # import routers (handlers/__init__.py exposes 'routers' list)
     try:
@@ -66,17 +68,21 @@ async def setup_bot_commands(bot: Bot) -> None:
 
 
 async def on_startup(bot: Bot, dispatcher: Optional[Dispatcher] = None) -> None:
-    """
-    Startup routine: set commands and test Samsara connection.
-    This can be passed to Dispatcher.start_polling as on_startup.
-    """
-    logger.info("on_startup: initializing")
+    logger.info("🚀 FleetMaster startup initiated.")
+    logger.info(f"ADMINS loaded: {settings.ADMINS}")
+
     try:
         await setup_bot_commands(bot)
     except Exception as e:
         logger.error(f"Error while setting bot commands: {e}")
 
-    # Best-effort Samsara test
+    # 🚛 Load truck groups from DB
+    try:
+        await load_truck_groups()
+    except Exception as e:
+        logger.error(f"Failed to load truck groups: {e}")
+
+    # Test Samsara API
     try:
         async with samsara_service as svc:
             ok = await svc.test_connection()
@@ -87,29 +93,30 @@ async def on_startup(bot: Bot, dispatcher: Optional[Dispatcher] = None) -> None:
     except Exception as e:
         logger.error(f"Samsara test error during startup: {e}")
 
-    # Get bot info
     try:
         me = await bot.get_me()
-        logger.info(f"Bot ready: @{getattr(me, 'username', 'unknown')}")
+        logger.info(f"✅ Bot ready: @{getattr(me, 'username', 'unknown')}")
     except Exception as e:
         logger.error(f"Failed to get bot info on startup: {e}")
-
-
+        
+# ─────────────────────────────────────────────
+# SHUTDOWN HOOK
+# ─────────────────────────────────────────────
 async def on_shutdown(bot: Bot, dispatcher: Optional[Dispatcher] = None) -> None:
-    """Shutdown tasks: close sessions and cleanup"""
-    logger.info("on_shutdown initiated")
-    try:
-        # close bot session if present
-        if hasattr(bot, "session") and bot.session:
-            await bot.session.close()
-            logger.info("Bot HTTP session closed")
-    except Exception as e:
-        logger.error(f"Error closing bot session: {e}")
+    """Clean shutdown and resource cleanup."""
+    logger.info("🛑 FleetMaster shutdown initiated...")
 
-    # clear service caches (best-effort)
     try:
         samsara_service.clear_cache()
+        logger.info("🧹 Cleared Samsara cache.")
     except Exception as e:
-        logger.error(f"Error clearing samsara cache: {e}")
+        logger.warning(f"⚠️ Error clearing Samsara cache: {e}")
 
-    logger.info("on_shutdown completed")
+    try:
+        if hasattr(bot, "session") and bot.session:
+            await bot.session.close()
+            logger.info("🔒 Bot session closed.")
+    except Exception as e:
+        logger.error(f"❌ Error closing bot session: {e}")
+
+    logger.info("✅ Shutdown complete.")

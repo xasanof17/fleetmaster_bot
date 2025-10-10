@@ -6,3 +6,5 @@ load-dotenv
 pytz
 gspread_asyncio
 google-auth
+asyncpg
+colorlog

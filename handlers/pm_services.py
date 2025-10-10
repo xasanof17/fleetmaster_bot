@@ -1,12 +1,7 @@
+# handlers/pm_services.py
 """
-handlers/pm_services.py
-PM Services section: read-only Google Sheet integration
-- Urgent & Oil Change lists (admin broadcast restricted)
-- FSM-based Search by Unit
-- Show all PM rows
-- Config-driven private/group restriction (silent ignore)
+PM Services: read-only Google Sheet integration + admin-only broadcast.
 """
-
 from typing import Dict, Any, List
 from datetime import datetime
 from aiogram import Router, F
@@ -27,52 +22,28 @@ from keyboards.pm_services import (
 )
 from config.settings import settings
 
-
-# ────────────────────────────────
-# CONFIG
-# ────────────────────────────────
 logger = get_logger(__name__)
 router = Router()
 
-# ✅ Safe Admin Load
-try:
-    ADMINS = set(settings.ADMINS)
-    logger.info(f"Loaded admins: {ADMINS}")
-except Exception as e:
-    ADMINS = set()
-    logger.warning(f"Failed to load ADMINS from settings: {e}")
-
-# ✅ Group Permission Setting
-ALLOW_GROUPS = getattr(settings, "ALLOW_GROUPS", False)
+ADMINS = {int(x) for x in (settings.ADMINS or [])}
+ALLOW_GROUPS = settings.ALLOW_GROUPS
 ALLOWED_CHAT_TYPES = {"private"} if not ALLOW_GROUPS else {"private", "group", "supergroup"}
-logger.info(f"Group access allowed: {ALLOW_GROUPS}")
 
 
-# ────────────────────────────────
-# FSM for Search-by-Unit
-# ────────────────────────────────
 class PMSearchState(StatesGroup):
     waiting_for_unit = State()
 
 
 def _build_template(rows: List[Dict[str, Any]], title: str, icon: str) -> str:
-    """Build the pinned-message style block."""
-    lines = [
-        f"{title.upper()}",
-        f"UPDATED: {datetime.now():%m/%d/%Y}",
-        "=" * 27,
-    ]
+    lines = [title.upper(), f"UPDATED: {datetime.now():%m/%d/%Y}", "=" * 27]
     for r in rows:
         truck = str(r.get("truck"))
-        left = r.get("left", 0)
+        left  = r.get("left", 0)
         lines.append(f"/{truck} – {title} {icon} {left:,}")
     lines.append("=" * 27)
     return "\n".join(lines)
 
 
-# ────────────────────────────────
-# Main Menu
-# ────────────────────────────────
 @router.callback_query(F.data == "pm_services")
 async def pm_services_menu(cb: CallbackQuery):
     intro = (
@@ -85,16 +56,9 @@ async def pm_services_menu(cb: CallbackQuery):
         "🔍 **Search by Unit** – Find a specific truck’s PM record\n\n"
         "Select an option to continue:"
     )
-    await cb.message.edit_text(
-        intro,
-        reply_markup=get_pm_services_menu(),
-        parse_mode="Markdown",
-    )
+    await cb.message.edit_text(intro, reply_markup=get_pm_services_menu(), parse_mode="Markdown")
 
 
-# ────────────────────────────────
-# Urgent List (Admin-limited Broadcast)
-# ────────────────────────────────
 @router.callback_query(F.data == "pm_urgent")
 async def urgent_list(cb: CallbackQuery):
     await cb.answer("⚡ Loading urgent list...")
@@ -105,14 +69,16 @@ async def urgent_list(cb: CallbackQuery):
         await cb.message.answer("🚨 No trucks currently marked as *Urgent oil change*.", parse_mode="Markdown")
         return
 
+    is_admin = cb.from_user.id in ADMINS
+    chat_type = cb.message.chat.type
     text = _build_template(urgent_only, "Urgent oil change", "📌")
-    markup = urgent_oil_list_keyboard("urgent") if cb.from_user.id in ADMINS else get_pm_services_menu()
-    await cb.message.answer(text, reply_markup=markup, parse_mode="Markdown")
+    await cb.message.answer(
+        text,
+        reply_markup=urgent_oil_list_keyboard("urgent", is_admin=is_admin, chat_type=chat_type),
+        parse_mode="Markdown",
+    )
 
 
-# ────────────────────────────────
-# Oil Change List
-# ────────────────────────────────
 @router.callback_query(F.data == "pm_oil")
 async def oil_change_list(cb: CallbackQuery):
     await cb.answer("⚡ Loading oil change list...")
@@ -123,17 +89,18 @@ async def oil_change_list(cb: CallbackQuery):
         await cb.message.answer("🟡 No trucks currently scheduled for a regular oil change.")
         return
 
+    is_admin = cb.from_user.id in ADMINS
+    chat_type = cb.message.chat.type
     text = _build_template(oil_only, "Oil change", "🟡")
-    markup = urgent_oil_list_keyboard("oil") if cb.from_user.id in ADMINS else get_pm_services_menu()
-    await cb.message.answer(text, reply_markup=markup, parse_mode="Markdown")
+    await cb.message.answer(
+        text,
+        reply_markup=urgent_oil_list_keyboard("oil", is_admin=is_admin, chat_type=chat_type),
+        parse_mode="Markdown",
+    )
 
 
-# ────────────────────────────────
-# Broadcast Handler
-# ────────────────────────────────
 @router.callback_query(F.data.startswith("pm_send_list:"))
 async def send_list_to_groups(cb: CallbackQuery):
-    """Admin-only broadcast of urgent/oil lists to each truck group."""
     if cb.from_user.id not in ADMINS:
         await cb.answer("🚫 Only admins can send broadcasts.", show_alert=True)
         return
@@ -141,11 +108,8 @@ async def send_list_to_groups(cb: CallbackQuery):
     list_type = cb.data.split(":")[1]
     await cb.answer("📡 Sending to groups…")
 
-    rows = (
-        await google_pm_service.get_urgent_list()
-        if list_type == "urgent"
-        else await google_pm_service.get_oil_list()
-    )
+    rows = await (google_pm_service.get_urgent_list() if list_type == "urgent"
+                  else google_pm_service.get_oil_list())
 
     if list_type == "urgent":
         rows = [r for r in rows if str(r.get("status", "")).lower().startswith("urgent")]
@@ -157,8 +121,8 @@ async def send_list_to_groups(cb: CallbackQuery):
     sent_count, skipped = 0, 0
     for r in rows:
         truck = str(r.get("truck"))
-        left = r.get("left", 0)
-        group_id = get_group_id_for_unit(truck)
+        left  = r.get("left", 0)
+        group_id = await get_group_id_for_unit(truck)
         if not group_id:
             skipped += 1
             continue
@@ -167,37 +131,24 @@ async def send_list_to_groups(cb: CallbackQuery):
             await cb.bot.send_message(chat_id=int(group_id), text=line)
             sent_count += 1
         except Exception as e:
-            logger.error(f"Failed to send {truck} to {group_id}: {e}")
+            logger.error("Failed to send %s to %s: %s", truck, group_id, e)
             skipped += 1
 
     await cb.message.answer(f"✅ Sent {sent_count} messages. Skipped {skipped}.")
 
 
-# ────────────────────────────────
-# Show All
-# ────────────────────────────────
 @router.callback_query(F.data.startswith("pm_all"))
 async def show_all(cb: CallbackQuery):
-    logger.info(f"User {cb.from_user.id} requested all list of trucks")
     await cb.answer("⚡ Loading all vehicles...")
-
     page = int(cb.data.split(":")[1]) if ":" in cb.data else 1
     per_page = 10
     vehicles = await google_pm_service.list_all_vehicles()
-
     total = len(vehicles)
     shown = max(0, min(per_page, total - (page - 1) * per_page))
     title = f"🚛 PM Sheet Vehicles ({shown} shown of {total})"
-
-    await cb.message.edit_text(
-        title,
-        reply_markup=get_pm_vehicles_keyboard(vehicles, page=page, per_page=per_page),
-    )
+    await cb.message.edit_text(title, reply_markup=get_pm_vehicles_keyboard(vehicles, page=page, per_page=per_page))
 
 
-# ────────────────────────────────
-# FSM Search by Unit
-# ────────────────────────────────
 @router.callback_query(F.data == "pm_search")
 async def pm_search_start(cb: CallbackQuery, state: FSMContext):
     await cb.message.edit_text(
@@ -217,8 +168,10 @@ async def pm_search_result(msg: Message, state: FSMContext):
         await state.clear()
         return
 
+    is_admin = msg.from_user.id in ADMINS
+    chat_type = msg.chat.type
     text = format_pm_vehicle_info(details, full=True)
-    await msg.answer(text, reply_markup=get_pm_vehicle_details_keyboard(unit), parse_mode="Markdown")
+    await msg.answer(text, reply_markup=get_pm_vehicle_details_keyboard(unit, is_admin=is_admin, chat_type=chat_type), parse_mode="Markdown")
     await state.clear()
 
 
@@ -228,9 +181,6 @@ async def cancel_pm_search(msg: Message, state: FSMContext):
     await msg.answer("❌ Search cancelled.", reply_markup=get_pm_services_menu())
 
 
-# ────────────────────────────────
-# Slash Command /<unit>
-# ────────────────────────────────
 @router.message(F.chat.type.in_(ALLOWED_CHAT_TYPES), F.text.regexp(r"^/\d+$"))
 async def pm_search_slash(msg: Message):
     unit = msg.text.lstrip("/")
@@ -239,13 +189,12 @@ async def pm_search_slash(msg: Message):
         await msg.answer(f"❌ Truck {unit} not found in the PM sheet.", reply_markup=get_pm_services_menu())
         return
 
+    is_admin = msg.from_user.id in ADMINS
+    chat_type = msg.chat.type
     text = format_pm_vehicle_info(details, full=True)
-    await msg.answer(text, reply_markup=get_pm_vehicle_details_keyboard(unit), parse_mode="Markdown")
+    await msg.answer(text, reply_markup=get_pm_vehicle_details_keyboard(unit, is_admin=is_admin, chat_type=chat_type), parse_mode="Markdown")
 
 
-# ────────────────────────────────
-# Vehicle Details
-# ────────────────────────────────
 @router.callback_query(F.data.startswith("pm_sheet_vehicle:"))
 async def vehicle_detail(cb: CallbackQuery):
     parts = cb.data.split(":")
@@ -257,8 +206,10 @@ async def vehicle_detail(cb: CallbackQuery):
         await cb.answer("Vehicle not found in PM sheet.", show_alert=True)
         return
 
+    is_admin = cb.from_user.id in ADMINS
+    chat_type = cb.message.chat.type
     new_text = format_pm_vehicle_info(details, full=True)
-    new_markup = get_pm_vehicle_details_keyboard(truck_id, page)
+    new_markup = get_pm_vehicle_details_keyboard(truck_id, page, is_admin=is_admin, chat_type=chat_type)
 
     try:
         await cb.message.edit_text(new_text, parse_mode="Markdown", reply_markup=new_markup)
@@ -270,10 +221,33 @@ async def vehicle_detail(cb: CallbackQuery):
             raise
 
 
-# ────────────────────────────────
-# Group Ignore (Silent Mode)
-# ────────────────────────────────
+# Admin-only "Send to Group" for a single unit (uses DB mapping)
+@router.callback_query(F.data.startswith("pm_send_group:"))
+async def send_one_to_group(cb: CallbackQuery):
+    if cb.from_user.id not in ADMINS:
+        await cb.answer("🚫 Admins only.", show_alert=True)
+        return
+
+    unit = cb.data.split(":", 1)[1]
+    group_id = await get_group_id_for_unit(unit)
+    if not group_id:
+        await cb.answer(f"No group configured for truck {unit}. Use /link {unit} in the target group.", show_alert=True)
+        return
+
+    details = await google_pm_service.get_vehicle_details(unit)
+    if not details:
+        await cb.answer("Truck not found in PM sheet.", show_alert=True)
+        return
+
+    text = format_pm_vehicle_info(details, full=True)
+    try:
+        await cb.bot.send_message(group_id, text, parse_mode="Markdown")
+        await cb.answer("✅ Sent to its group")
+    except TelegramBadRequest as e:
+        await cb.answer(f"Error: {e}", show_alert=True)
+
+
+# Final safety: if groups are not allowed, ignore everything there.
 @router.message(F.chat.type.in_({"group", "supergroup"}))
 async def ignore_groups_silently(_: Message):
-    """Completely ignore all commands and messages in groups."""
     return

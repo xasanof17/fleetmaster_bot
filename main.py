@@ -22,10 +22,6 @@ async def _start():
             ok = await svc.test_connection()
             if ok:
                 logger.info("Samsara connection OK at startup")
-
-                print(settings.ADMINS)
-                print(settings.ALLOW_GROUPS)
-                print(settings.TRUCK_GROUP_MAP)
             else:
                 logger.warning("Samsara connection failed at startup")
     except Exception as e:

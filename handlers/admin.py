@@ -1,31 +1,23 @@
-# from aiogram import Router, types, F
-# from utils import location_logger
-# from config import settings
+# handlers/admin.py
+from aiogram import Router, F
+from aiogram.types import Message
+from config.settings import settings
+from services.group_map import upsert_mapping
+from utils import get_logger
 
-# router = Router()
+router = Router()
+logger = get_logger(__name__)
+ADMINS = set(settings.ADMINS or [])
 
-# # List of admin user IDs (Telegram)
-# ADMINS = settings.ADMINS  # e.g., [123456789, 987654321]
+@router.message(F.text == "/id")
+async def my_id(msg: Message):
+    await msg.answer(f"Your ID: {msg.from_user.id}\nADMINS: {settings.ADMINS}\nYou're admin: {msg.from_user.id in ADMINS}")
 
-# @router.message(F.text == "/locationlogs")
-# async def cmd_location_logs(message: types.Message):
-#     if message.from_user.id not in ADMINS:
-#         await message.answer("❌ You are not authorized to view logs.")
-#         return
-
-#     logs = location_logger.read_logs(limit=15)
-#     if not logs:
-#         await message.answer("📂 No location requests logged yet.")
-#         return
-
-#     text = "📊 **Recent Location Requests**\n\n"
-#     for log in logs:
-#         text += (
-#             f"👤 User: `{log['user_id']}`\n"
-#             f"🚛 Vehicle: `{log['vehicle_id']}`\n"
-#             f"📍 Type: {log['location_type']}\n"
-#             f"🏠 Address: {log.get('address', 'N/A')}\n"
-#             f"🕒 {log['timestamp']}\n\n"
-#         )
-
-#     await message.answer(text, parse_mode="Markdown")
+@router.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"^/link\s+(\d+)$"))
+async def link_group(msg: Message, regexp: dict):
+    # admin-only
+    if msg.from_user.id not in ADMINS:
+        return
+    unit = regexp.group(1)
+    await upsert_mapping(unit, msg.chat.id, msg.chat.title or "")
+    await msg.reply(f"✅ Linked this group to unit **{unit}**.")

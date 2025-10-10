@@ -1,21 +1,29 @@
 # middlewares/chat_guard.py
 from aiogram import BaseMiddleware
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, Chat
+from config.settings import settings
+from utils import get_logger
 
-class PrivateOnlyMiddleware(BaseMiddleware):
+logger = get_logger(__name__)
+
+class ChatGuardMiddleware(BaseMiddleware):
+    """
+    If ALLOW_GROUPS=False, silently ignores all group/supergroup events.
+    """
     async def __call__(self, handler, event, data):
         chat_type = None
+        chat: Chat | None = None
         if isinstance(event, Message):
-            chat_type = event.chat.type
-        elif isinstance(event, CallbackQuery):
-            chat_type = event.message.chat.type
+            chat = event.chat
+        elif isinstance(event, CallbackQuery) and event.message:
+            chat = event.message.chat
 
-        if chat_type in ("group", "supergroup"):
-            # silently ignore or send a short notice
-            if isinstance(event, Message):
-                await event.reply("🚫 This bot works only in private chats.")
-            elif isinstance(event, CallbackQuery):
-                await event.answer("🚫 This bot works only in private chats.", show_alert=True)
-            return  # stop further processing
+        if chat:
+            chat_type = chat.type
+
+        if not settings.ALLOW_GROUPS and chat_type in {"group", "supergroup"}:
+            # No replies. No alerts. Quiet ignore.
+            # logger.debug("ChatGuard: ignored event from group chat_id=%s", getattr(chat, "id", None))
+            return
 
         return await handler(event, data)

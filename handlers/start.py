@@ -55,7 +55,7 @@ Select an option below to get started:
             reply_markup=get_main_menu_keyboard(),
             parse_mode="Markdown"
         )
-        logger.success(f"Welcome message sent to user {message.from_user.id}")
+        logger.info(f"Welcome message sent to user {message.from_user.id}")
     except Exception as e:
         logger.error(f"Error sending welcome message: {e}")
         await message.answer("❌ Something went wrong. Please try again.")
@@ -85,7 +85,7 @@ async def password_check(message: Message, state: FSMContext):
         authorized_users[message.from_user.id] = date.today()
         await state.clear()  # leave the auth state
         await message.answer("✅ Password correct! You are authorized until midnight today.\nSend /start to open the menu.")
-        logger.success(f"User {message.from_user.id} authorized successfully for today")
+        logger.info(f"User {message.from_user.id} authorized successfully for today")
     else:
         await message.answer("❌ Wrong password. Try again.")
         logger.warning(f"User {message.from_user.id} entered wrong password")
@@ -158,7 +158,7 @@ async def cmd_help(callback: CallbackQuery):
             parse_mode="Markdown"
         )
         await callback.answer()
-        logger.success(f"Help shown to user {callback.from_user.id}")
+        logger.info(f"Help shown to user {callback.from_user.id}")
     except Exception as e:
         logger.error(f"Error showing help: {e}")
         await callback.answer("❌ Error loading help")
@@ -195,7 +195,7 @@ Choose an option below:
             parse_mode="Markdown"
         )
         await callback.answer()
-        logger.success(f"Main menu shown to user {callback.from_user.id}")
+        logger.info(f"Main menu shown to user {callback.from_user.id}")
     except Exception as e:
         logger.error(f"Error showing main menu: {e}")
         await callback.answer("❌ Error loading main menu")

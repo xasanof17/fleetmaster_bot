@@ -1,38 +1,64 @@
-"""
-Logging configuration for FleetMaster Bot
-"""
-import sys
-from pathlib import Path
-from loguru import logger
-from config import settings
+import logging
+import os
+from config.settings import settings
+from colorlog import ColoredFormatter
 
 
-def setup_logging() -> None:
-    logger.remove()
-    logger.add(
-        sys.stdout,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-        level=settings.LOG_LEVEL,
-        colorize=True,
+def setup_logging():
+    """Set up global logging with color in console and file output."""
+    log_dir = "logs"
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, "fleetmaster.log")
+
+    # ───────────────────────────────
+    # 🎨 Define color format for console
+    # ───────────────────────────────
+    color_formatter = ColoredFormatter(
+        fmt="%(log_color)s%(asctime)s [%(levelname)s] %(name)s:%(reset)s %(message_log_color)s%(message)s",
+        datefmt="%H:%M:%S",
+        reset=True,
+        log_colors={
+            "DEBUG": "cyan",
+            "INFO": "green",
+            "WARNING": "yellow",
+            "ERROR": "red",
+            "CRITICAL": "bold_red",
+        },
+        secondary_log_colors={
+            "message": {
+                "ERROR": "red",
+                "CRITICAL": "bold_red",
+                "WARNING": "yellow",
+                "INFO": "white",
+                "DEBUG": "cyan",
+            }
+        },
+        style="%",
     )
 
-    if settings.LOG_TO_FILE:
-        logs_dir = Path("logs")
-        logs_dir.mkdir(exist_ok=True)
-        logger.add(
-            "logs/fleetmaster_{time}.log",
-            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
-            level=settings.LOG_LEVEL,
-            rotation="1 day",
-            retention="30 days",
-            compression="zip",
+    # ───────────────────────────────
+    # 🧱 Base config
+    # ───────────────────────────────
+    root_logger = logging.getLogger()
+    root_logger.setLevel(settings.LOG_LEVEL)
+
+    # Console handler (colored)
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(color_formatter)
+    root_logger.addHandler(console_handler)
+
+    # File handler (plain text)
+    if getattr(settings, "LOG_TO_FILE", True):
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
         )
+        root_logger.addHandler(file_handler)
 
-    logger.info("Logging configured")
+    # Final confirmation
+    root_logger.info("🌿 Logging initialized with color + file output")
 
 
-def get_logger(name: str = None):
-    # returns a bound logger for consistent name usage
-    if name:
-        return logger.bind(module=name)
-    return logger
+def get_logger(name: str):
+    """Return a namespaced logger."""
+    return logging.getLogger(name)
