@@ -3,9 +3,10 @@ import asyncio
 from aiohttp import web
 from aiogram import types
 from core.bot import create_dispatcher, create_bot
+from config import settings
 
-TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # e.g. https://your-vercel-app.vercel.app/
+TOKEN = settings.TELEGRAM_BOT_TOKEN
+WEBHOOK_URL = settings.WEBHOOK_URL  # e.g. https://your-vercel-app.vercel.app/
 
 bot = create_bot()
 dp = create_dispatcher()

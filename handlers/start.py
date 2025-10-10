@@ -9,7 +9,7 @@ from aiogram.fsm.state import State, StatesGroup
 from keyboards import get_main_menu_keyboard, get_help_keyboard
 from keyboards.documents import documents_menu_kb
 from utils.logger import get_logger
-import os
+from config import settings
 from datetime import date
 
 logger = get_logger("handlers.start")
@@ -20,7 +20,7 @@ class AuthStates(StatesGroup):
     waiting_for_password = State()
 
 # >>> simple password (put real password in env)
-BOT_PASSWORD = os.getenv("BOT_PASSWORD", "mypassword")
+BOT_PASSWORD = settings.BOT_PASSWORD
 # >>> keep authorized users with date
 authorized_users: dict[int, date] = {}
 

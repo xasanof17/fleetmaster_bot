@@ -1,14 +1,15 @@
-import os
 import json
 import datetime
 from typing import Dict, List, Any
 from gspread_asyncio import AsyncioGspreadClientManager
 from google.oauth2.service_account import Credentials
+from config import settings
+
 
 # ── Environment ──────────────────────────────────────────────
-GOOGLE_CREDS_JSON    = os.getenv("GOOGLE_CREDS_JSON")
-OPS_SPREADSHEET_NAME = os.getenv("OPS_SPREADSHEET_NAME", "OPERATION DEPARTMENT")
-OPS_WORKSHEET_NAME   = os.getenv("OPS_WORKSHEET_NAME", "OPERATIONS")
+GOOGLE_CREDS_JSON    = settings.GOOGLE_CREDS_JSON
+OPS_SPREADSHEET_NAME = settings.OPS_SPREADSHEET_NAME
+OPS_WORKSHEET_NAME   = settings.OPS_WORKSHEET_NAME
 
 # ── Google Auth ──────────────────────────────────────────────
 def _get_creds():

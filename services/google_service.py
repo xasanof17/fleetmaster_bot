@@ -1,11 +1,12 @@
-import os, json, datetime
+import json, datetime
 from typing import List, Dict, Any, Tuple
 from gspread_asyncio import AsyncioGspreadClientManager
 from google.oauth2.service_account import Credentials
+from config import settings
 
-GOOGLE_CREDS_JSON   = os.getenv("GOOGLE_CREDS_JSON")
-PM_SPREADSHEET_NAME = os.getenv("PM_SPREADSHEET_NAME")
-PM_WORKSHEET_NAME   = os.getenv("PM_WORKSHEET_NAME", "PM_TRACKER")  # adjust to your real tab name
+GOOGLE_CREDS_JSON   = settings.GOOGLE_CREDS_JSON
+PM_SPREADSHEET_NAME = settings.PM_SPREADSHEET_NAME
+PM_WORKSHEET_NAME   = settings.PM_WORKSHEET_NAME
 
 # ---- auth ----
 def _creds():

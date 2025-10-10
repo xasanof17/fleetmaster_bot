@@ -1,3 +1,4 @@
+import os
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, FSInputFile, Message
 from aiogram.fsm.context import FSMContext
@@ -6,10 +7,10 @@ from aiogram.filters import StateFilter
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from keyboards.documents import documents_menu_kb, get_documents_vehicle_keyboard
 from services.samsara_service import samsara_service
-import os
+from config import settings
 
 documents_router = Router()
-FILES_BASE = "files"
+FILES_BASE = settings.FILES_BASE
 
 DOC_FOLDERS = {
     "registrations_2026": "registrations_2026",

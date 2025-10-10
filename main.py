@@ -6,7 +6,7 @@ from core.bot import (create_bot, create_dispatcher)
 from utils.logger import setup_logging, get_logger
 from config import settings
 from services.samsara_service import samsara_service
-
+from config import settings
 logger = get_logger("main")
 
 
@@ -22,6 +22,10 @@ async def _start():
             ok = await svc.test_connection()
             if ok:
                 logger.info("Samsara connection OK at startup")
+
+                print(settings.ADMINS)
+                print(settings.ALLOW_GROUPS)
+                print(settings.TRUCK_GROUP_MAP)
             else:
                 logger.warning("Samsara connection failed at startup")
     except Exception as e:
