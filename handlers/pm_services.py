@@ -2,6 +2,7 @@
 """
 PM Services: read-only Google Sheet integration + admin-only broadcast.
 """
+import asyncio
 from typing import Dict, Any, List
 from datetime import datetime
 from aiogram import Router, F
@@ -108,33 +109,42 @@ async def send_list_to_groups(cb: CallbackQuery):
     list_type = cb.data.split(":")[1]
     await cb.answer("📡 Sending to groups…")
 
+    # 🧾 Fetch the right sheet
     rows = await (google_pm_service.get_urgent_list() if list_type == "urgent"
                   else google_pm_service.get_oil_list())
 
     if list_type == "urgent":
         rows = [r for r in rows if str(r.get("status", "")).lower().startswith("urgent")]
-        icon, title = "📌", "Urgent oil change"
+        title = "Urgent oil change"
     else:
         rows = [r for r in rows if str(r.get("status", "")).lower().startswith("oil")]
-        icon, title = "🟡", "Oil change"
+        title = "Oil change"
 
     sent_count, skipped = 0, 0
+
     for r in rows:
         truck = str(r.get("truck"))
-        left  = r.get("left", 0)
         group_id = await get_group_id_for_unit(truck)
         if not group_id:
             skipped += 1
             continue
-        line = f"{truck} – {title} {icon} {left:,}"
+
         try:
-            await cb.bot.send_message(chat_id=int(group_id), text=line)
+            # 🧰 Send the full PM service template
+            text = format_pm_vehicle_info(r, full=True)
+            await cb.bot.send_message(
+                chat_id=int(group_id),
+                text=text,
+                parse_mode="Markdown"
+            )
             sent_count += 1
+            await asyncio.sleep(0.1)  # small delay to avoid Telegram flood limits
+
         except Exception as e:
-            logger.error("Failed to send %s to %s: %s", truck, group_id, e)
+            logger.error("Failed to send PM details for %s to %s: %s", truck, group_id, e)
             skipped += 1
 
-    await cb.message.answer(f"✅ Sent {sent_count} messages. Skipped {skipped}.")
+    await cb.message.answer(f"✅ Sent {sent_count} detailed PM messages. Skipped {skipped}.")
 
 
 @router.callback_query(F.data.startswith("pm_all"))

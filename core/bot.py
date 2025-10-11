@@ -12,7 +12,6 @@ from config import settings
 from utils.logger import get_logger
 from services.samsara_service import samsara_service
 from middlewares.chat_guard import ChatGuardMiddleware
-from services.group_map import load_truck_groups
 from config import settings
 
 logger = get_logger("core.bot")
@@ -75,12 +74,6 @@ async def on_startup(bot: Bot, dispatcher: Optional[Dispatcher] = None) -> None:
         await setup_bot_commands(bot)
     except Exception as e:
         logger.error(f"Error while setting bot commands: {e}")
-
-    # 🚛 Load truck groups from DB
-    try:
-        await load_truck_groups()
-    except Exception as e:
-        logger.error(f"Failed to load truck groups: {e}")
 
     # Test Samsara API
     try:

@@ -1,126 +1,140 @@
 """
 services/group_map.py
-Dynamic Truck → Telegram Group mapping (PostgreSQL-based)
-Compatible with both async DB access and legacy imports
+Handles database interactions for truck ↔ group mapping.
 """
+
 import asyncpg
-from typing import Optional, Dict, List
+import asyncio
+from datetime import datetime
+from typing import Optional, Dict, Any
 from config.settings import settings
 from utils.logger import get_logger
+from config.db import get_pool 
 
 logger = get_logger(__name__)
-DB_URL = settings.DATABASE_URL
+
+# ----------------------------------------------------------------
+# Connection pool
+# ----------------------------------------------------------------
+_pool: Optional[asyncpg.Pool] = None
 
 
-# ─────────────────────────────────────────────
-# INTERNAL HELPERS
-# ─────────────────────────────────────────────
-async def _get_connection():
+async def init_pool():
+    """Initialize the async Postgres connection pool."""
+    global _pool
+    if _pool is not None:
+        return _pool
+
     try:
-        return await asyncpg.connect(DB_URL)
+        _pool = await asyncpg.create_pool(
+            dsn=settings.DATABASE_URL,
+            min_size=1,
+            max_size=5,
+            command_timeout=60,
+        )
+        logger.info("🟢 Database pool initialized successfully.")
+        await ensure_table_exists()
+        return _pool
     except Exception as e:
-        logger.error(f"❌ DB connection failed: {e}")
-        return None
+        logger.error(f"❌ Failed to initialize DB pool: {e}")
+        raise
 
 
-async def _ensure_table(conn):
-    try:
-        await conn.execute("""
+async def ensure_table_exists():
+    """Ensure the truck_groups table exists."""
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS truck_groups (
                 unit TEXT PRIMARY KEY,
                 chat_id BIGINT NOT NULL,
-                group_title TEXT DEFAULT '',
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-    except Exception as e:
-        logger.error(f"Error ensuring table: {e}")
+                title TEXT NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+            """
+        )
+    logger.info("✅ Verified truck_groups table.")
 
 
-# ─────────────────────────────────────────────
-# MAIN DB FUNCTIONS
-# ─────────────────────────────────────────────
+# ----------------------------------------------------------------
+# Core CRUD
+# ----------------------------------------------------------------
+async def upsert_mapping(unit: str, chat_id: int, title: str):
+    pool = await get_pool()
+    query = """
+    INSERT INTO public.truck_groups (unit, chat_id, title)
+    VALUES ($1, $2, $3)
+    ON CONFLICT (unit) DO UPDATE
+    SET chat_id = EXCLUDED.chat_id,
+        title = EXCLUDED.title,
+        created_at = NOW();
+    """
+    async with pool.acquire() as conn:
+        await conn.execute(query, unit, chat_id, title)
+    logger.info(f"✅ Updated mapping: {unit} → {chat_id} ({title})")
+
+
+
+async def get_truck_group(unit: str) -> Optional[Dict[str, Any]]:
+    """Fetch a single truck group mapping by unit."""
+    pool = await init_pool()
+    async with pool.acquire() as conn:
+        try:
+            row = await conn.fetchrow(
+                "SELECT * FROM truck_groups WHERE unit = $1", unit
+            )
+            if row:
+                return dict(row)
+        except Exception as e:
+            logger.error(f"⚠️ Error fetching truck group {unit}: {e}")
+    return None
+
+
+async def list_all_groups():
+    pool = await get_pool()
+    query = "SELECT unit, chat_id, title, created_at FROM public.truck_groups ORDER BY created_at DESC"
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(query)
+    return [dict(r) for r in rows]
+
+
+# ----------------------------------------------------------------
+# Quick lookup helper for handlers
+# ----------------------------------------------------------------
 async def get_group_id_for_unit(unit: str) -> Optional[int]:
-    conn = await _get_connection()
-    if not conn:
-        return None
-    try:
-        await _ensure_table(conn)
-        row = await conn.fetchrow("SELECT chat_id FROM truck_groups WHERE unit=$1;", str(unit))
-        return int(row["chat_id"]) if row else None
-    except Exception as e:
-        logger.error(f"Error fetching group for {unit}: {e}")
-        return None
-    finally:
-        await conn.close()
-
-
-async def upsert_mapping(unit: str, chat_id: int, title: str = "") -> bool:
-    conn = await _get_connection()
-    if not conn:
-        return False
-    try:
-        await _ensure_table(conn)
-        await conn.execute("""
-            INSERT INTO truck_groups (unit, chat_id, group_title, updated_at)
-            VALUES ($1, $2, $3, NOW())
-            ON CONFLICT (unit) DO UPDATE
-            SET chat_id=EXCLUDED.chat_id,
-                group_title=EXCLUDED.group_title,
-                updated_at=NOW();
-        """, str(unit), int(chat_id), title or "")
-        logger.info(f"✅ Linked truck {unit} → group {chat_id} ({title})")
-        return True
-    except Exception as e:
-        logger.error(f"❌ upsert_mapping failed: {e}")
-        return False
-    finally:
-        await conn.close()
-
-
-async def list_all_groups() -> List[Dict[str, str]]:
-    conn = await _get_connection()
-    if not conn:
-        return []
-    try:
-        await _ensure_table(conn)
-        rows = await conn.fetch("SELECT * FROM truck_groups;")
-        return [dict(r) for r in rows]
-    except Exception as e:
-        logger.error(f"Error listing groups: {e}")
-        return []
-    finally:
-        await conn.close()
-
-
-async def remove_mapping(unit: str) -> bool:
-    conn = await _get_connection()
-    if not conn:
-        return False
-    try:
-        await _ensure_table(conn)
-        result = await conn.execute("DELETE FROM truck_groups WHERE unit=$1;", str(unit))
-        return result.startswith("DELETE")
-    except Exception as e:
-        logger.error(f"Error removing mapping: {e}")
-        return False
-    finally:
-        await conn.close()
-
-
-# ─────────────────────────────────────────────
-# LEGACY SUPPORT (for imports like load_truck_groups)
-# ─────────────────────────────────────────────
-async def load_truck_groups() -> Dict[str, int]:
     """
-    Legacy helper for backward compatibility.
-    Loads all truck→group mappings as a dict {unit: chat_id}.
+    Returns the Telegram chat_id for a given truck unit, or None if not found.
     """
     try:
-        data = await list_all_groups()
-        result = {row["unit"]: int(row["chat_id"]) for row in data if "unit" in row and "chat_id" in row}
-        logger.info(f"✅ Loaded {len(result)} truck→group mappings from DB.")
-        return result
+        pool = await init_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT chat_id FROM truck_groups WHERE unit = $1", unit)
+            if row:
+                logger.info(f"🎯 Found group for unit {unit}: {row['chat_id']}")
+                return row["chat_id"]
+            else:
+                logger.warning(f"⚠️ No group found in DB for unit {unit}")
+                return None
     except Exception as e:
-        logger.error(f"Error in load_truck_groups: {e}")
-        return {}
+        logger.error(f"💥 DB lookup failed for {unit}: {e}")
+        return None
+
+
+# ----------------------------------------------------------------
+# Graceful cleanup
+# ----------------------------------------------------------------
+async def close_pool():
+    """Close connection pool."""
+    global _pool
+    if _pool:
+        await _pool.close()
+        _pool = None
+        logger.info("🟡 Database pool closed.")
+
+
+# ----------------------------------------------------------------
+# Synchronous helper for external modules (optional)
+# ----------------------------------------------------------------
+def sync_upsert(unit: str, chat_id: int, title: str):
+    """Helper to allow synchronous scripts to add mappings."""
+    asyncio.run(upsert_mapping(unit, chat_id, title))
