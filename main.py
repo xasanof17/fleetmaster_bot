@@ -10,6 +10,7 @@ from core.bot import (
     on_startup,
     on_shutdown,
 )
+from services.group_map import verify_existing_groups
 from utils.logger import setup_logging, get_logger
 from services.samsara_service import samsara_service
 from config.db import init_db
@@ -82,6 +83,7 @@ async def _start():
     # ✅ 3. Run startup hooks
     try:
         await on_startup(bot, dp)
+        await verify_existing_groups(bot)
     except Exception as e:
         logger.error(f"⚠️ Error during on_startup: {e}")
 
