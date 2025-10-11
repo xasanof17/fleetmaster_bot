@@ -20,4 +20,3 @@ async def link_group(msg: Message, regexp: dict):
         return
     unit = regexp.group(1)
     await upsert_mapping(unit, msg.chat.id, msg.chat.title or "")
-    await msg.reply(f"✅ Linked this group to unit **{unit}**.")
