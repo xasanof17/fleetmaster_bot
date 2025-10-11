@@ -8,3 +8,4 @@ gspread_asyncio
 google-auth
 asyncpg
 colorlog
+pytz
