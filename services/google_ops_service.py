@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Any
 from gspread_asyncio import AsyncioGspreadClientManager
 from google.oauth2.service_account import Credentials
@@ -8,6 +8,11 @@ from config import settings
 GOOGLE_CREDS_JSON    = settings.GOOGLE_CREDS_JSON
 OPS_SPREADSHEET_NAME = settings.OPS_SPREADSHEET_NAME
 OPS_WORKSHEET_NAME   = settings.OPS_WORKSHEET_NAME
+
+
+# Cache
+_CACHE = {"data": None, "time": None}
+_CACHE_TTL = timedelta(minutes=5)
 
 # ── Google Auth ──────────────────────────────────────────────
 def _get_creds():
@@ -22,6 +27,8 @@ _manager = AsyncioGspreadClientManager(_get_creds)
 
 # ── Helpers ──────────────────────────────────────────────────
 def _today() -> str:
+    import datetime
+    print("DEBUG DATETIME =", datetime)
     return datetime.datetime.now().strftime("%m/%d/%Y")
 
 async def _read_all_sections() -> Dict[str, Any]:
@@ -119,41 +126,63 @@ async def get_data_for_vehicle_info(unit: str) -> Dict[str, str]:
 
 class GoogleOpsService:
     async def get_summary(self) -> Dict[str, Any]:
-        data  = await _read_all_sections()
-        stats = data["stats"]
+        """Reads OPS spreadsheet summary with caching and structured parsing."""
+        global _CACHE
 
+        # ⚡ Use cached data if still valid
+        if (
+            _CACHE["data"]
+            and _CACHE["time"]
+            and datetime.now() - _CACHE["time"] < _CACHE_TTL
+        ):
+            return _CACHE["data"]
+
+        # Otherwise fetch fresh data
+        data = await _read_all_sections()
+        stats = data.get("stats", {})
+
+        # Build broken-road list
         road_lines = []
-        for r in data["broken_road"]:
-            t   = r.get("Trucks") or r.get("TRUCKS") or ""
-            drv = r.get("Previous Driver") or r.get("PREVIOUS DRIVER") or ""
-            if t:
-                road_lines.append(f"{t} - _{drv}_")
+        for r in data.get("broken_road", []):
+            truck = r.get("Trucks") or r.get("TRUCKS") or ""
+            driver = r.get("Previous Driver") or r.get("PREVIOUS DRIVER") or ""
+            if truck:
+                road_lines.append(f"{truck} - _{driver}_")
 
+        # Helper to fetch safe numeric/stat values
         def g(k: str) -> str:
             return stats.get(k, "0")
 
-        return {
-            "date":          _today(),
-            "total":         g("TOTAL"),
-            "active":        g("ACTIVE"),
-            "home_time":     g("HOME TIME"),
-            "broken":        g("BROKEN TRUCK"),
+        summary = {
+            "date": _today(),
+            "total": g("TOTAL"),
+            "active": g("ACTIVE"),
+            "home_time": g("HOME TIME"),
+            "broken": g("BROKEN TRUCK"),
             "getting_ready": g("GETTING READY"),
-            "accident":      g("ACCIDENT"),
-            "lost":          g("TOTAL LOST"),
-            "tow_list":      data["side_tow"],
-            "owner_list":    data["side_owner"],
-            "broken_road":   road_lines,
+            "accident": g("ACCIDENT"),
+            "lost": g("TOTAL LOST"),
+            "tow_list": data.get("side_tow", []),
+            "owner_list": data.get("side_owner", []),
+            "broken_road": road_lines,
         }
 
+        # 🧠 Cache result for faster refreshes
+        _CACHE["data"] = summary
+        _CACHE["time"] = datetime.now()
+
+        return summary
+
     async def as_markdown(self) -> str:
+        """Return formatted fleet summary in Markdown style for Telegram."""
         d = await self.get_summary()
-        tow_lines   = "\n".join(d["tow_list"])   or "None"
+
+        tow_lines = "\n".join(d["tow_list"]) or "None"
         owner_lines = "\n".join(d["owner_list"]) or "None"
-        road_lines  = "\n".join(d["broken_road"]) or "None"
+        road_lines = "\n".join(d["broken_road"]) or "None"
 
         return (
-            f"======= *DELTA TRUCKS* =======\n"
+            "======= *DELTA TRUCKS* =======\n"
             f"*TOTAL* : {d['total']}\n"
             f"*HOME TIME* : {d['home_time']}\n"
             f"*BROKEN TRUCK* : {d['broken']}\n"
@@ -161,15 +190,15 @@ class GoogleOpsService:
             f"*ACCIDENT* : {d['accident']}\n"
             f"*TOTAL LOST* : {d['lost']}\n"
             f"*ACTIVE* : {d['active']}\n"
-            f"=========================\n"
+            "=========================\n"
             f"*TOW TRUCKS* : {len(d['tow_list'])}\n"
             f"{tow_lines}\n\n"
             f"*OWNER OPERATOR* : {len(d['owner_list'])}\n"
             f"{owner_lines}\n"
-            f"=========================\n"
+            "=========================\n"
             f"*BROKEN ON THE ROAD ({len(d['broken_road'])})*:\n"
             f"{road_lines}\n"
-            f"=========================\n"
+            "=========================\n"
             f"*DATE* : {d['date']}"
         )
 

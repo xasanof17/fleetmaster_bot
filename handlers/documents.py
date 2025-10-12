@@ -38,7 +38,7 @@ async def show_documents_menu(callback: CallbackQuery):
     await callback.answer()
     
     doc_intro = (
-        "📂 **DOCUMENTS** — Fleet & Compliance Files\n\n"
+        "📂 *DOCUMENTS* — Fleet & Compliance Files\n\n"
         "Access key paperwork in one place:\n"
         "• Registrations and state permits\n"
         "• Lease agreements and annual inspections\n\n"
@@ -82,7 +82,7 @@ async def documents_flow(callback: CallbackQuery):
         kb.adjust(1)
 
         await callback.message.edit_text(
-            f"📂 **{doc_title}**\n\nChoose how to find your document:",
+            f"📂 *{doc_title}*\n\nChoose how to find your document:",
             reply_markup=kb.as_markup(),
             parse_mode="Markdown"
         )
@@ -119,7 +119,7 @@ async def documents_flow(callback: CallbackQuery):
             doc_title = doc_names.get(doc_type, doc_type.replace('_', ' ').title())
             
             await callback.message.edit_text(
-                f"🚛 **{doc_title}**\n\nPage {page} - Select a vehicle:",
+                f"🚛 *{doc_title}*\n\nPage {page} - Select a vehicle:",
                 reply_markup=kb,
                 parse_mode="Markdown"
             )
@@ -165,7 +165,7 @@ async def send_document_file(callback: CallbackQuery, truck_number: str, doc_typ
             }
             
             doc_name = doc_names.get(doc_type, doc_type.replace('_', ' ').title())
-            caption = f"📄 **Truck {truck_number}** - {doc_name}"
+            caption = f"📄 *Truck {truck_number}* - {doc_name}"
             
             await callback.message.answer_document(
                 FSInputFile(file_path),

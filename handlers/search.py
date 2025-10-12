@@ -1,120 +1,174 @@
 """
-Search handlers using FSM for query input
-FIXED: Corrected imports and removed duplicate functionality
+Universal Search Handler (clean + optimized)
+Handles Truck, PM Services, and Document searches
+Keeps all existing button callbacks intact
 """
+
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, FSInputFile
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.fsm.state import StatesGroup, State
 from keyboards.pm_trucker import get_vehicles_list_keyboard, get_back_to_pm_keyboard
-from services.samsara_service import samsara_service
+from services import samsara_service, google_pm_service
+from utils import format_pm_vehicle_info
 from utils.logger import get_logger
+from config import settings
+import os
 
-logger = get_logger("handlers.search")
 router = Router()
+logger = get_logger("unified.search")
+
+FILES_BASE = getattr(settings, "FILES_BASE", "./files")
+DOC_FOLDERS = {
+    "registrations_2026": "registrations_2026",
+    "new_mexico": "new_mexico",
+    "lease": "lease_agreements",
+    "inspection_2025": "annual_inspection",
+}
 
 
-class SearchStates(StatesGroup):
+# ==============================
+# FSM State
+# ==============================
+class SearchState(StatesGroup):
     waiting_for_query = State()
 
 
-@router.callback_query(lambda c: c.data.startswith("pm_search_by:"))
-async def start_search(callback: CallbackQuery, state: FSMContext):
-    search_type = callback.data.split(":", 1)[1]
-    await state.update_data(search_type=search_type)
-    await state.set_state(SearchStates.waiting_for_query)
+# ==============================
+# Start Search by Callback
+# ==============================
+@router.callback_query(lambda c: c.data in ["pm_search_vehicle", "pm_search"])
+async def start_vehicle_search(callback: CallbackQuery, state: FSMContext):
+    mode = "truck" if callback.data == "pm_search_vehicle" else "pm"
+    await state.update_data(mode=mode)
+    await state.set_state(SearchState.waiting_for_query)
 
-    prompts = {
-        "name": "🏷️ Search by Name\nEnter vehicle name (or part):",
-        "vin": "🔢 Search by VIN\nEnter VIN (or part):",
-        "plate": "🚗 Search by Plate\nEnter plate (or part):",
-        "all": "🔎 Search all fields\nEnter text to search:"
-    }
-    text = prompts.get(search_type, "Enter search query:")
-    text += "\n\n❌ Send /cancel to stop."
-    try:
-        await callback.message.edit_text(text=text, parse_mode="Markdown")
-        await callback.answer("🔍 Enter query")
-    except TelegramBadRequest as e:
-        logger.error(f"BadRequest when starting search: {e}")
-        await callback.answer("❌ Error starting search")
-
-
-@router.message(SearchStates.waiting_for_query, F.text)
-async def process_search(message: Message, state: FSMContext):
-    query = message.text.strip()
-    if not query or len(query) < 2:
-        await message.reply("Please enter at least 2 characters for search.")
-        return
-    data = await state.get_data()
-    search_type = data.get("search_type", "all")
-    searching = await message.reply("🔍 Searching...")
-
-    try:
-        async with samsara_service as svc:
-            results = await svc.search_vehicles(query, search_type)
-        if not results:
-            await searching.edit_text(
-                text=f"❌ No results for '{query}'", 
-                reply_markup=get_back_to_pm_keyboard(), 
-                parse_mode="Markdown"
-            )
-        else:
-            text = f"🎯 Found {len(results)} result(s) for '{query}':"
-            await searching.edit_text(
-                text=text, 
-                reply_markup=get_vehicles_list_keyboard(results, page=1, per_page=10), 
-                parse_mode="Markdown"
-            )
-    except Exception as e:
-        logger.error(f"Search error: {e}")
-        try:
-            await searching.edit_text(
-                text="❌ Search failed. Try again later.", 
-                reply_markup=get_back_to_pm_keyboard(), 
-                parse_mode="Markdown"
-            )
-        except:
-            await message.reply("❌ Search failed.")
-    finally:
-        await state.clear()
-
-
-@router.callback_query(lambda c: c.data.startswith("pm_search_page:"))
-async def search_page(callback: CallbackQuery):
-    parts = callback.data.split(":")
-    if len(parts) < 4:
-        await callback.answer("❌ Invalid page request")
-        return
-    _, search_type, search_query, page_str = parts
-    try:
-        page = int(page_str)
-    except Exception:
-        await callback.answer("❌ Invalid page")
-        return
-    await callback.answer("⚡ Loading page...")
-    try:
-        async with samsara_service as svc:
-            results = await svc.search_vehicles(search_query, search_type)
-        if not results:
-            await callback.answer("❌ No results")
-            return
-        await callback.message.edit_text(
-            text=f"🎯 Results for '{search_query}'", 
-            reply_markup=get_vehicles_list_keyboard(results, page=page, per_page=10), 
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        logger.error(f"Search page error: {e}")
-        await callback.answer("❌ Error loading page")
-
-
-@router.message(SearchStates.waiting_for_query, F.text == "/cancel")
-async def cancel_search(message: Message, state: FSMContext):
-    await state.clear()
-    await message.reply(
-        "❌ Search cancelled", 
-        reply_markup=get_back_to_pm_keyboard(), 
+    menu_name = "🚛 Truck" if mode == "truck" else "🛠 PM Service"
+    await callback.message.answer(
+        f"{menu_name} Search Mode\n\n"
+        "Please enter unit name or number to search.\n"
+        "❌ Send /cancel to stop searching.",
         parse_mode="Markdown"
     )
+    await callback.answer("Search started!")
+
+
+# ==============================
+# Start Search for Documents
+# ==============================
+@router.callback_query(lambda c: c.data.startswith("docs:"))
+async def start_doc_search(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split(":")
+    if len(parts) < 2:
+        await callback.answer("Invalid document search")
+        return
+
+    doc_type = parts[1]
+    await state.update_data(mode="doc", doc_type=doc_type)
+    await state.set_state(SearchState.waiting_for_query)
+
+    await callback.message.answer(
+        f"📄 Document Search — *{doc_type.replace('_', ' ').title()}*\n\n"
+        "Please enter the truck number or name.\n"
+        "❌ Send /cancel to stop searching.",
+        parse_mode="Markdown"
+    )
+    await callback.answer("Search started!")
+
+
+# ==============================
+# Handle Search Queries
+# ==============================
+@router.message(SearchState.waiting_for_query, F.text)
+async def process_search(msg: Message, state: FSMContext):
+    query = msg.text.strip()
+    if query.lower() == "/cancel":
+        await cancel_search(msg, state)
+        return
+
+    data = await state.get_data()
+    mode = data.get("mode", "truck")
+    doc_type = data.get("doc_type")
+
+    await msg.answer(f"🔍 Searching `{query}`...", parse_mode="Markdown")
+
+    try:
+        if mode == "truck":
+            await handle_truck_search(msg, query)
+        elif mode == "pm":
+            await handle_pm_search(msg, query)
+        elif mode == "doc":
+            await handle_doc_search(msg, query, doc_type)
+        else:
+            await msg.answer("❌ Unknown search mode. Please try again.")
+    except Exception as e:
+        logger.error(f"Search error: {e}")
+        await msg.answer("❌ Error while searching. Try again later.")
+
+
+# ==============================
+# Truck Search
+# ==============================
+async def handle_truck_search(msg: Message, query: str):
+    async with samsara_service as svc:
+        results = await svc.search_vehicles(query, "all")
+
+    if not results:
+        await msg.answer(f"❌ No trucks found for *{query}*.", parse_mode="Markdown")
+        return
+
+    await msg.answer(
+        f"🎯 Found {len(results)} result(s) for `{query}`:",
+        parse_mode="Markdown",
+        reply_markup=get_vehicles_list_keyboard(results, page=1, per_page=10)
+    )
+
+
+# ==============================
+# PM Search
+# ==============================
+async def handle_pm_search(msg: Message, query: str):
+    details = await google_pm_service.get_vehicle_details(query)
+    if not details:
+        await msg.answer(f"⚠️ Truck *{query}* not found in PM records.", parse_mode="Markdown")
+        return
+
+    text = format_pm_vehicle_info(details, full=True)
+    await msg.answer(text, parse_mode="Markdown")
+
+
+# ==============================
+# Document Search
+# ==============================
+async def handle_doc_search(msg: Message, query: str, doc_type: str):
+    folder = DOC_FOLDERS.get(doc_type)
+    if not folder:
+        await msg.answer("❌ Invalid document type.")
+        return
+
+    folder_path = os.path.join(FILES_BASE, folder)
+    if not os.path.exists(folder_path):
+        await msg.answer("⚠️ Folder not found on server.")
+        return
+
+    try:
+        for filename in os.listdir(folder_path):
+            if query.lower() in filename.lower():
+                await msg.answer_document(
+                    FSInputFile(os.path.join(folder_path, filename)),
+                    caption=f"📄 {doc_type.replace('_', ' ').title()} — Truck {query}"
+                )
+                return
+        await msg.answer(f"❌ No document found for *{query}*.", parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Doc search error: {e}")
+        await msg.answer("❌ Document search failed.")
+
+
+# ==============================
+# Cancel Search
+# ==============================
+@router.message(F.text == "/cancel")
+async def cancel_search(msg: Message, state: FSMContext):
+    await state.clear()
+    await msg.answer("❌ Search cancelled.", reply_markup=get_back_to_pm_keyboard())

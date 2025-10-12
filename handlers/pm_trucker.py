@@ -1,17 +1,14 @@
 # handlers/pm_trucker.py (FIXED WITH PAGINATION)
 import asyncio
 import os
-from config.settings import settings
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, FSInputFile, Message
+from aiogram.types import CallbackQuery, Message
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from services.group_map import get_group_id_for_unit
 from services.samsara_service import samsara_service
 from services.google_ops_service import google_ops_service
-from services.google_service import google_pm_service
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from keyboards.pm_trucker import (
     get_pm_trucker_menu,
     get_vehicle_details_keyboard,
@@ -21,14 +18,12 @@ from keyboards.pm_trucker import (
 )
 from utils.helpers import (
     format_vehicle_info,
-    format_vehicle_list,
     location_choice_keyboard,
     build_static_location_message,
     build_live_location_message,
 )
 from utils.logger_location import log_location_request
 from utils.logger import get_logger
-from utils.pm_formatter import format_pm_vehicle_info
 
 logger = get_logger(__name__)
 router = Router()
@@ -121,13 +116,16 @@ async def show_all_vehicles(callback: CallbackQuery):
 # ────────────────────────────────────────
 @router.callback_query(lambda c: c.data == "pm_view_all_statuses")
 async def show_all_statuses(callback: CallbackQuery):
-    await callback.answer("⏳ Fetching statuses…")
+    await callback.answer("📊 Loading OPS statuses…")
     try:
         text = await google_ops_service.as_markdown()
         await callback.message.answer(text, parse_mode="Markdown")
     except Exception as e:
-        logger.error(f"Error fetching ops statuses: {e}")
-        await callback.message.answer("❌ Error fetching status list.")
+        logger.error(f"Error Loading OPS statuses: {e}")
+        try:
+            await callback.answer("❌ Error Loading OPS data", show_alert=True)
+        except TelegramBadRequest:
+            await callback.message.answer("❌ OPS status fetch failed.")
 
 
 # ────────────────────────────────────────

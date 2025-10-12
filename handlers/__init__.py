@@ -13,6 +13,7 @@ from handlers.admin_dbcheck import router as admin_dbcheck_router
 from handlers.auto_link_groups import router as auto_link_router
 from handlers.sync_groups import router as sync_groups_router
 from handlers.documents import router as documents_router
+from handlers.trailer import router as trailer_router
 
 # Import search router if exists, otherwise skip
 try:
@@ -37,6 +38,9 @@ routers = [
     pm_services_router,
     pm_trucker_router,
     documents_router,
+    
+    # Additional features
+    trailer_router
 ]
 
 # Add optional routers if they exist
