@@ -1,10 +1,14 @@
+# handlers/pm_trucker.py (FIXED WITH PAGINATION)
 import asyncio
 import os
 from config.settings import settings
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, FSInputFile
+from aiogram.types import CallbackQuery, FSInputFile, Message
 from aiogram.exceptions import TelegramBadRequest
-from services.group_map import get_group_id_for_unit  # ✅ replaced TRUCK_GROUPS
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from services.group_map import get_group_id_for_unit
 from services.samsara_service import samsara_service
 from services.google_ops_service import google_ops_service
 from services.google_service import google_pm_service
@@ -31,9 +35,13 @@ router = Router()
 LIVE_UPDATE_INTERVAL = 30
 FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "files", "registrations_2026")
 
-# ────────────────────────────────
+# FSM for search
+class VehicleSearchState(StatesGroup):
+    waiting_for_query = State()
+
+# ────────────────────────────────────────
 # PM Trucker Main Menu
-# ────────────────────────────────
+# ────────────────────────────────────────
 @router.callback_query(lambda c: c.data == "pm_trucker")
 async def show_pm_trucker(callback: CallbackQuery):
     """Show TRUCK INFORMATION main menu"""
@@ -44,6 +52,7 @@ async def show_pm_trucker(callback: CallbackQuery):
         "🚛 **TRUCK INFORMATION**\n\n"
         "Vehicle information and management system.\n\n"
         "**Available Options:**\n\n"
+        "⚡️ **Statuses List** - View fleet status summary\n"
         "🚛 **View All Vehicles** - Browse your complete fleet\n"
         "🔍 **Search Vehicle** - Find vehicles by name, VIN, or plate\n"
         "🔄 **Refresh Data** - Get latest vehicle information\n\n"
@@ -57,12 +66,20 @@ async def show_pm_trucker(callback: CallbackQuery):
         await callback.answer("❌ Error loading TRUCK INFORMATION")
 
 
-# ────────────────────────────────
-# View All Vehicles
-# ────────────────────────────────
-@router.callback_query(lambda c: c.data == "pm_view_all_vehicles")
+# ────────────────────────────────────────
+# View All Vehicles (FIXED WITH PROPER PAGINATION)
+# ────────────────────────────────────────
+@router.callback_query(lambda c: c.data == "pm_view_all_vehicles" or c.data.startswith("pm_vehicles_page:"))
 async def show_all_vehicles(callback: CallbackQuery):
+    """Show all vehicles with pagination - 10 per page"""
+    # Parse page number
+    if callback.data.startswith("pm_vehicles_page:"):
+        page = int(callback.data.split(":")[1])
+    else:
+        page = 1
+    
     await callback.answer("⚡ Loading vehicles...")
+    
     try:
         async with samsara_service as service:
             vehicles = await service.get_vehicles(use_cache=True)
@@ -75,9 +92,19 @@ async def show_all_vehicles(callback: CallbackQuery):
             )
             return
 
-        list_text = format_vehicle_list(vehicles)
+        # Calculate pagination (10 per page)
+        per_page = 10
+        total_vehicles = len(vehicles)
+        total_pages = (total_vehicles + per_page - 1) // per_page
+        
+        list_text = f"🚛 **Fleet Vehicles** (Page {page}/{total_pages})\n\n"
+        list_text += f"Total vehicles: {total_vehicles}\n\n"
+        list_text += "Select a vehicle to view details:"
+        
         await callback.message.edit_text(
-            text=list_text, reply_markup=get_vehicles_list_keyboard(vehicles), parse_mode="Markdown"
+            text=list_text, 
+            reply_markup=get_vehicles_list_keyboard(vehicles, page=page, per_page=per_page), 
+            parse_mode="Markdown"
         )
 
     except Exception as e:
@@ -89,9 +116,9 @@ async def show_all_vehicles(callback: CallbackQuery):
         )
 
 
-# ────────────────────────────────
+# ────────────────────────────────────────
 # Show All Statuses (Google Sheet)
-# ────────────────────────────────
+# ────────────────────────────────────────
 @router.callback_query(lambda c: c.data == "pm_view_all_statuses")
 async def show_all_statuses(callback: CallbackQuery):
     await callback.answer("⏳ Fetching statuses…")
@@ -103,29 +130,9 @@ async def show_all_statuses(callback: CallbackQuery):
         await callback.message.answer("❌ Error fetching status list.")
 
 
-# ────────────────────────────────
-# Pagination
-# ────────────────────────────────
-@router.callback_query(lambda c: c.data.startswith("pm_vehicles_page:"))
-async def show_vehicles_page(callback: CallbackQuery):
-    await callback.answer("⚡ Loading page...")
-    try:
-        page = int(callback.data.split(":")[1])
-        async with samsara_service as service:
-            vehicles = await service.get_vehicles(use_cache=True)
-
-        list_text = format_vehicle_list(vehicles)
-        await callback.message.edit_text(
-            text=list_text, reply_markup=get_vehicles_list_keyboard(vehicles, page=page), parse_mode="Markdown"
-        )
-    except Exception as e:
-        logger.error(f"Error showing vehicles page: {e}")
-        await callback.answer("❌ Error loading page")
-
-
-# ────────────────────────────────
+# ────────────────────────────────────────
 # Vehicle Details
-# ────────────────────────────────
+# ────────────────────────────────────────
 @router.callback_query(lambda c: c.data.startswith("pm_vehicle_details:"))
 async def show_vehicle_details(callback: CallbackQuery):
     vehicle_id = callback.data.split(":", 1)[1]
@@ -152,26 +159,106 @@ async def show_vehicle_details(callback: CallbackQuery):
     except Exception as e:
         logger.error(f"Error showing vehicle details: {e}")
         await callback.message.edit_text(
-            "❌ **Error Loading Vehicle Details**", reply_markup=get_back_to_pm_keyboard(), parse_mode="Markdown"
+            "❌ **Error Loading Vehicle Details**", 
+            reply_markup=get_back_to_pm_keyboard(), 
+            parse_mode="Markdown"
         )
 
 
-# ────────────────────────────────
-# Search Vehicles
-# ────────────────────────────────
+# ────────────────────────────────────────
+# Search Vehicles (FIXED WITH FSM)
+# ────────────────────────────────────────
 @router.callback_query(lambda c: c.data == "pm_search_vehicle")
-async def search_vehicle(callback: CallbackQuery):
+async def search_vehicle_menu(callback: CallbackQuery):
     text = (
         "🔍 **Search Vehicles**\n\n"
         "Choose how you want to search for vehicles:\n\n"
-        "🏷️ **By Name**\n🔢 **By VIN**\n🚗 **By Plate**\n🔍 **All Fields**"
+        "🏷️ **By Name**\n🔢 **By VIN**\n🚗 **By Plate**\n🔎 **All Fields**"
     )
     await callback.message.edit_text(text, reply_markup=get_search_options_keyboard(), parse_mode="Markdown")
 
 
-# ────────────────────────────────
+@router.callback_query(lambda c: c.data.startswith("pm_search_by:"))
+async def start_vehicle_search(callback: CallbackQuery, state: FSMContext):
+    """Start vehicle search by type"""
+    search_type = callback.data.split(":", 1)[1]
+    await state.update_data(search_type=search_type)
+    await state.set_state(VehicleSearchState.waiting_for_query)
+
+    prompts = {
+        "name": "🏷️ **Search by Name**\nEnter vehicle name (or part):",
+        "vin": "🔢 **Search by VIN**\nEnter VIN (or part):",
+        "plate": "🚗 **Search by Plate**\nEnter plate (or part):",
+        "all": "🔎 **Search all fields**\nEnter text to search:"
+    }
+    text = prompts.get(search_type, "Enter search query:")
+    text += "\n\n❌ Send /cancel to stop."
+    
+    try:
+        await callback.message.edit_text(text=text, parse_mode="Markdown")
+        await callback.answer("🔍 Enter query")
+    except TelegramBadRequest as e:
+        logger.error(f"BadRequest when starting search: {e}")
+        await callback.answer("❌ Error starting search")
+
+
+@router.message(VehicleSearchState.waiting_for_query, F.text)
+async def process_vehicle_search(message: Message, state: FSMContext):
+    """Process the vehicle search query"""
+    query = message.text.strip()
+    if not query or len(query) < 2:
+        await message.reply("Please enter at least 2 characters for search.")
+        return
+    
+    data = await state.get_data()
+    search_type = data.get("search_type", "all")
+    searching = await message.reply("🔍 Searching...")
+
+    try:
+        async with samsara_service as svc:
+            results = await svc.search_vehicles(query, search_type)
+        
+        if not results:
+            await searching.edit_text(
+                text=f"❌ No results for '{query}'", 
+                reply_markup=get_back_to_pm_keyboard(), 
+                parse_mode="Markdown"
+            )
+        else:
+            text = f"🎯 Found {len(results)} result(s) for '{query}':"
+            await searching.edit_text(
+                text=text, 
+                reply_markup=get_vehicles_list_keyboard(results, page=1, per_page=10), 
+                parse_mode="Markdown"
+            )
+    except Exception as e:
+        logger.error(f"Search error: {e}")
+        try:
+            await searching.edit_text(
+                text="❌ Search failed. Try again later.", 
+                reply_markup=get_back_to_pm_keyboard(), 
+                parse_mode="Markdown"
+            )
+        except:
+            await message.reply("❌ Search failed.")
+    finally:
+        await state.clear()
+
+
+@router.message(VehicleSearchState.waiting_for_query, F.text == "/cancel")
+async def cancel_vehicle_search(message: Message, state: FSMContext):
+    """Cancel vehicle search"""
+    await state.clear()
+    await message.reply(
+        "❌ Search cancelled", 
+        reply_markup=get_back_to_pm_keyboard(), 
+        parse_mode="Markdown"
+    )
+
+
+# ────────────────────────────────────────
 # Refresh Cache
-# ────────────────────────────────
+# ────────────────────────────────────────
 @router.callback_query(lambda c: c.data == "pm_refresh_cache")
 async def refresh_cache(callback: CallbackQuery):
     await callback.answer("🔄 Refreshing data...")
@@ -190,9 +277,23 @@ async def refresh_cache(callback: CallbackQuery):
         await callback.answer("❌ Error refreshing data")
 
 
-# ────────────────────────────────
+# ────────────────────────────────────────
 # Location Handlers
-# ────────────────────────────────
+# ────────────────────────────────────────
+@router.callback_query(F.data.startswith("pm_vehicle_location:"))
+async def show_location_choice(callback: CallbackQuery):
+    """Show static/live location choice"""
+    vehicle_id = callback.data.split(":", 1)[1]
+    await callback.message.edit_text(
+        "📍 **Choose Location Type**\n\n"
+        "🗺 **Static** - One-time location\n"
+        "📡 **Live** - Updates every 30 seconds for 5 minutes",
+        reply_markup=location_choice_keyboard(vehicle_id),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("loc_static:"))
 async def handle_static(callback: CallbackQuery):
     await callback.answer()
@@ -270,9 +371,9 @@ async def handle_live(callback: CallbackQuery):
         await callback.message.answer("❌ Error sending live location")
 
 
-# ────────────────────────────────
+# ────────────────────────────────────────
 # Registration File Handler
-# ────────────────────────────────
+# ────────────────────────────────────────
 @router.callback_query(F.data.startswith("pm_vehicle_reg:"))
 async def handle_registration_file(callback: CallbackQuery):
     vehicle_name = callback.data.split(":", 1)[1]
@@ -280,6 +381,10 @@ async def handle_registration_file(callback: CallbackQuery):
     await callback.answer()
 
     try:
+        if not os.path.exists(FILES_DIR):
+            await callback.message.answer(f"❌ Registration files directory not found.")
+            return
+            
         files = [f for f in os.listdir(FILES_DIR) if f.lower().endswith(".pdf")]
         found = next((os.path.join(FILES_DIR, f) for f in files if vehicle_name.lower() in f.lower()), None)
 
@@ -296,31 +401,10 @@ async def handle_registration_file(callback: CallbackQuery):
         await callback.message.answer("❌ Error sending registration file.")
 
 
-# ────────────────────────────────
-# Send PM Info to Group (DB)
-# ────────────────────────────────
-@router.callback_query(F.data.startswith("pm_send_group:"))
-async def auto_send_to_group(cb: CallbackQuery):
-    """Send truck PM info to its linked group from DB."""
-    try:
-        unit = cb.data.split(":", 1)[1].strip()
-        group_id = await get_group_id_for_unit(unit)
-
-        if not group_id:
-            await cb.answer(f"🚫 No group found for truck {unit}", show_alert=True)
-            return
-
-        details = await google_pm_service.get_vehicle_details(unit)
-        if not details:
-            await cb.answer("❌ Truck not found in PM sheet.", show_alert=True)
-            return
-
-        text = format_pm_vehicle_info(details, full=True)
-        await cb.bot.send_message(int(group_id), text, parse_mode="Markdown")
-        await cb.answer("✅ Sent to linked group")
-        logger.info(f"Sent PM info for truck {unit} to group {group_id}")
-    except TelegramBadRequest as e:
-        await cb.answer(f"⚠️ Telegram Error: {e}", show_alert=True)
-    except Exception as e:
-        logger.error(f"Error sending PM info to group: {e}")
-        await cb.answer("❌ Internal error while sending", show_alert=True)
+# ────────────────────────────────────────
+# Handle page info callback (no-op)
+# ────────────────────────────────────────
+@router.callback_query(F.data == "pm_page_info")
+async def handle_page_info(callback: CallbackQuery):
+    """Handle page info button (does nothing)"""
+    await callback.answer()

@@ -1,6 +1,7 @@
 """
 FleetMaster Bot — App Entrypoint
 Handles bot startup, database initialization, and polling lifecycle.
+UPDATED: Auto-detects groups on startup
 """
 
 import asyncio
@@ -11,6 +12,7 @@ from core.bot import (
     on_shutdown,
 )
 from services.group_map import verify_existing_groups
+from handlers.auto_detect_groups import auto_detect_and_map_groups
 from utils.logger import setup_logging, get_logger
 from services.samsara_service import samsara_service
 from config.db import init_db
@@ -72,6 +74,7 @@ async def _start():
     # ✅ 1. Initialize PostgreSQL (with retry)
     logger.info("🔌 Attempting to initialize PostgreSQL connection...")
     db_ready = await init_db_with_retry()
+    
     if not db_ready:
         logger.error("🚫 Database could not be initialized. Exiting startup.")
         return
@@ -79,15 +82,23 @@ async def _start():
     # ✅ 2. Create bot & dispatcher
     bot = create_bot()
     dp = create_dispatcher()
-
+    
     # ✅ 3. Run startup hooks
     try:
         await on_startup(bot, dp)
-        await verify_existing_groups(bot)
     except Exception as e:
         logger.error(f"⚠️ Error during on_startup: {e}")
 
-    # ✅ 4. Samsara API test
+    # ✅ 4. Auto-detect and map existing groups
+    logger.info("🔍 Scanning for groups where bot is already a member...")
+    try:
+        await verify_existing_groups(bot)
+        detected = await auto_detect_and_map_groups(bot)
+        logger.info(f"✅ Group auto-detection complete. Found {detected} groups.")
+    except Exception as e:
+        logger.error(f"⚠️ Error during group auto-detection: {e}")
+
+    # ✅ 5. Samsara API test
     try:
         async with samsara_service as svc:
             ok = await svc.test_connection()
@@ -98,10 +109,10 @@ async def _start():
     except Exception as e:
         logger.error(f"💥 Samsara startup test error: {e}")
 
-    # ✅ 5. Start non-blocking background Samsara updater
+    # ✅ 6. Start non-blocking background Samsara updater
     samsara_task = asyncio.create_task(samsara_background_task(interval_hours=1))
 
-    # ✅ 6. Start bot polling
+    # ✅ 7. Start bot polling
     try:
         logger.info("🚀 Starting bot polling (FleetMaster is now live!)")
         await dp.start_polling(
@@ -111,7 +122,7 @@ async def _start():
     except Exception as e:
         logger.error(f"💀 Polling error: {e}")
     finally:
-        # ✅ 7. Graceful shutdown
+        # ✅ 8. Graceful shutdown
         samsara_task.cancel()
         await on_shutdown(bot, dp)
         await bot.session.close()

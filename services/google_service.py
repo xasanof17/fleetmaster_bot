@@ -20,11 +20,48 @@ def _creds():
 _manager = AsyncioGspreadClientManager(_creds)
 
 async def _get_all_records() -> List[Dict[str, Any]]:
-    """Always return list[dict] using header row."""
+    """
+    Manually parse sheet to handle duplicate headers.
+    Returns list[dict] using header row.
+    """
     agcm = await _manager.authorize()
     ss   = await agcm.open(PM_SPREADSHEET_NAME)
     ws   = await ss.worksheet(PM_WORKSHEET_NAME)
-    return await ws.get_all_records()
+    
+    # Get all values manually
+    all_vals = await ws.get_all_values()
+    
+    if len(all_vals) < 2:
+        return []
+    
+    # First row is headers
+    headers = all_vals[0]
+    
+    # Make headers unique by adding suffix if duplicate
+    seen = {}
+    unique_headers = []
+    for h in headers:
+        h_clean = h.strip()
+        if not h_clean:
+            h_clean = f"EMPTY_{len(unique_headers)}"
+        
+        if h_clean in seen:
+            seen[h_clean] += 1
+            unique_headers.append(f"{h_clean}_{seen[h_clean]}")
+        else:
+            seen[h_clean] = 0
+            unique_headers.append(h_clean)
+    
+    # Build records
+    records = []
+    for row in all_vals[1:]:  # Skip header row
+        record = {}
+        for i, value in enumerate(row):
+            if i < len(unique_headers):
+                record[unique_headers[i]] = value
+        records.append(record)
+    
+    return records
 
 def _now_str() -> str:
     return datetime.datetime.now().strftime("%m/%d/%Y")
@@ -52,9 +89,16 @@ class GooglePMService:
             left = _safe_int(r.get("Left"))
             days = _safe_int(r.get("Days"))
             if left <= mile_limit or days <= day_limit:
-                truck = str(r.get("Truck Number") or r.get("Truck") or "").strip()
+                # Try different possible column names
+                truck = str(r.get("Truck Number") or r.get("TRUCK NUMBER") or r.get("Truck") or "").strip()
                 if truck:
-                    out.append({"truck": truck, "left": left, "days": days, "status": status, "updated": _now_str()})
+                    out.append({
+                        "truck": truck, 
+                        "left": left, 
+                        "days": days, 
+                        "status": status, 
+                        "updated": _now_str()
+                    })
         return out
 
     async def get_oil_list(self, mile_limit: int = 10000) -> List[Dict[str, Any]]:
@@ -66,9 +110,15 @@ class GooglePMService:
                 continue
             left = _safe_int(r.get("Left"))
             if left <= mile_limit:
-                truck = str(r.get("Truck Number") or r.get("Truck") or "").strip()
+                # Try different possible column names
+                truck = str(r.get("Truck Number") or r.get("TRUCK NUMBER") or r.get("Truck") or "").strip()
                 if truck:
-                    out.append({"truck": truck, "left": left, "status": status, "updated": _now_str()})
+                    out.append({
+                        "truck": truck, 
+                        "left": left, 
+                        "status": status, 
+                        "updated": _now_str()
+                    })
         return out
 
     # ------- Vehicles list for the keyboard (NO pagination here) -------
@@ -77,7 +127,8 @@ class GooglePMService:
         rows = await _get_all_records()
         items: List[Dict[str, str]] = []
         for r in rows:
-            t = str(r.get("Truck Number") or r.get("Truck") or "").strip()
+            # Try different possible column names
+            t = str(r.get("Truck Number") or r.get("TRUCK NUMBER") or r.get("Truck") or "").strip()
             if t:
                 items.append({"id": t, "name": f"Truck {t}"})
         return items
@@ -86,17 +137,19 @@ class GooglePMService:
     async def get_vehicle_details(self, truck: str) -> Dict[str, Any] | None:
         rows = await _get_all_records()
         for r in rows:
-            if str(r.get("Truck Number")) == str(truck):
+            # Try different possible column names
+            truck_num = str(r.get("Truck Number") or r.get("TRUCK NUMBER") or r.get("Truck") or "")
+            if truck_num == str(truck):
                 return {
-                    "truck":          str(r.get("Truck Number")),
-                    "pm_date":        r.get("Oil change\ndate") or r.get("Oil change date"),
-                    "days":           _safe_int(r.get("Days")),
-                    "left":           _safe_int(r.get("Left")),
-                    "status":         r.get("STATUS"),
-                    "notes":          r.get("Notes"),
-                    "last_history":   r.get("Last History"),
-                    "latest_history": r.get("Lastest History"),
-                    "updated":        _now_str(),
+                    "truck": truck_num,
+                    "pm_date": r.get("Oil change\ndate") or r.get("Oil change date") or r.get("PM Date") or "N/A",
+                    "days": _safe_int(r.get("Days")),
+                    "left": _safe_int(r.get("Left")),
+                    "status": r.get("STATUS") or "N/A",
+                    "notes": r.get("Notes") or "",
+                    "last_history": r.get("Last History") or "",
+                    "latest_history": r.get("Lastest History") or r.get("Latest History") or "",
+                    "updated": _now_str(),
                 }
         return None
 

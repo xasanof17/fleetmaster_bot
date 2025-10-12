@@ -150,7 +150,6 @@ def get_calendar_keyboard(year=None, month=None) -> InlineKeyboardMarkup:
 # INLINE MINUTE PICKER (new)
 # =======================================
 def get_minute_picker_keyboard(selected_hour: int) -> InlineKeyboardMarkup:
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
     b = InlineKeyboardBuilder()
 
     b.row(InlineKeyboardButton(text=f"🕓 Hour: {selected_hour:02d}", callback_data="noop"))

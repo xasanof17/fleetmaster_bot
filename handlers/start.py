@@ -1,5 +1,6 @@
 """
 Start and help handlers
+UPDATED: Admins skip password check
 """
 from aiogram import Router
 from aiogram.types import Message, CallbackQuery
@@ -23,6 +24,8 @@ class AuthStates(StatesGroup):
 BOT_PASSWORD = settings.BOT_PASSWORD
 # >>> keep authorized users with date
 authorized_users: dict[int, date] = {}
+# >>> admins list
+ADMINS = set(settings.ADMINS or [])
 
 
 async def show_welcome(message: Message):
@@ -32,11 +35,11 @@ async def show_welcome(message: Message):
 
 Your comprehensive fleet management assistant powered by Samsara Cloud.
 
-🔹 **TRUCK INFORMATION** – View detailed vehicle information  
-🔹 **PM SERVICES** – Track preventive maintenance, urgent oil changes, and service schedules  
-🔹 **DOCUMENTS** – Access registrations, permits, lease agreements, and inspection records  
-🔹 **Real-time Data** – Get up-to-date fleet info  
-🔹 **Easy Navigation** – Simple button interface
+🔹 **TRUCK INFORMATION** — View detailed vehicle information  
+🔹 **PM SERVICES** — Track preventive maintenance, urgent oil changes, and service schedules  
+🔹 **DOCUMENTS** — Access registrations, permits, lease agreements, and inspection records  
+🔹 **Real-time Data** — Get up-to-date fleet info  
+🔹 **Easy Navigation** — Simple button interface
 
 **Features:**
 📋 Vehicle details (VIN, Plate, Year, Name, Odometer)  
@@ -63,16 +66,25 @@ Select an option below to get started:
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
-    """/start — if authorized today show menu, otherwise request password."""
+    """/start — admins skip password, others need daily password."""
     logger.info(f"User {message.from_user.id} started bot")
-
+    user_id = message.from_user.id
     today = date.today()
-    if authorized_users.get(message.from_user.id) == today:
-        # user already authorized today -> show welcome
+    
+    # ✅ ADMINS: Skip password completely
+    if user_id in ADMINS:
+        authorized_users[user_id] = today
+        logger.info(f"✅ Admin {user_id} auto-authorized (no password needed)")
+        await show_welcome(message)
+        return
+    
+    # ✅ Regular users: Check if authorized today
+    if authorized_users.get(user_id) == today:
+        # Already authorized today
         await show_welcome(message)
         return
 
-    # not authorized today -> ask for password
+    # ❌ Not authorized today -> ask for password
     await message.answer("🔒 Please enter the bot password to continue:")
     await state.set_state(AuthStates.waiting_for_password)
 
@@ -92,13 +104,13 @@ async def password_check(message: Message, state: FSMContext):
 
 
 def is_authorized_today(user_id: int) -> bool:
-    """Check if user is authorized today."""
-    return authorized_users.get(user_id) == date.today()
+    """Check if user is authorized today (includes admins)."""
+    return user_id in ADMINS or authorized_users.get(user_id) == date.today()
 
 
 def require_auth_message() -> str:
     """Standard message for expired/missing authorization."""
-    return "🔑 Your authorization expired. Please re-enter today’s password with /start"
+    return "🔒 Your authorization expired. Please re-enter today's password with /start"
 
 
 @router.callback_query(lambda c: c.data == "help")
@@ -127,7 +139,7 @@ async def cmd_help(callback: CallbackQuery):
 • Search all fields at once
 
 🚚 **PM SERVICES**
-• View trucks needing 📌*Urgent Oil Change*
+• View trucks needing 🔌*Urgent Oil Change*
 • View trucks scheduled for routine 🟡*Oil Change*
 • Search 🔢 by unit number (message or /slash)
 • Browse all preventive-maintenance records
@@ -146,9 +158,9 @@ async def cmd_help(callback: CallbackQuery):
 5. Use navigation buttons (Main Menu, Back, Refresh) to move around
 
 **Navigation**
-🏠 **Main Menu** – Return to dashboard  
-🔙 **Back** – Go to previous screen  
-🔄 **Refresh** – Update current data with the latest info
+🏠 **Main Menu** — Return to dashboard  
+🔙 **Back** — Go to previous screen  
+🔄 **Refresh** — Update current data with the latest info
     """.strip()
 
     try:
@@ -179,11 +191,11 @@ async def show_main_menu(callback: CallbackQuery):
 Your fleet management command center.
 
 **Current Features:**
-🚛 **TRUCK INFORMATION** – View your entire fleet and get detailed vehicle info  
-🚚 **PM SERVICES** – Track preventive maintenance, urgent oil changes, and service schedules  
-📂 **DOCUMENTS** – Access registrations, permits, lease agreements, and inspection records  
-🔍 **Search** – Find vehicles by name, VIN, or plate instantly  
-⚡ **Fast Performance** – Cached data for near-instant responses
+🚛 **TRUCK INFORMATION** — View your entire fleet and get detailed vehicle info  
+🚚 **PM SERVICES** — Track preventive maintenance, urgent oil changes, and service schedules  
+📂 **DOCUMENTS** — Access registrations, permits, lease agreements, and inspection records  
+🔍 **Search** — Find vehicles by name, VIN, or plate instantly  
+⚡ **Fast Performance** — Cached data for near-instant responses
 
 Choose an option below:
     """.strip()
@@ -208,10 +220,10 @@ async def open_documents(message: Message):
         await message.answer(require_auth_message())
         return
     doc_intro = (
-    "📂 **DOCUMENTS** – Fleet & Compliance Files\n\n"
-    "Access key paperwork in one place:\n"
-    "• Registrations and state permits\n"
-    "• Lease agreements and annual inspections\n\n"
-    "Select a document category below to view or download:"
-)
+        "📂 **DOCUMENTS** — Fleet & Compliance Files\n\n"
+        "Access key paperwork in one place:\n"
+        "• Registrations and state permits\n"
+        "• Lease agreements and annual inspections\n\n"
+        "Select a document category below to view or download:"
+    )
     await message.answer(doc_intro, reply_markup=documents_menu_kb(), parse_mode="Markdown")
