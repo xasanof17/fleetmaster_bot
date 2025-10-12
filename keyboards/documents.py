@@ -73,3 +73,17 @@ def vehicles_kb(vehicles: list[str], doc_type: str):
         rows.append(row)
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def get_send_group_keyboard(truck_unit: str) -> InlineKeyboardMarkup:
+    """Keyboard shown below the document message."""
+    b = InlineKeyboardBuilder()
+    b.add(InlineKeyboardButton(
+        text="📤 Send to Group",
+        callback_data=f"send_group:{truck_unit}"
+    ))
+    b.add(InlineKeyboardButton(
+        text="🔙 Back to Documents",
+        callback_data="documents"
+    ))
+    b.adjust(1)
+    return b.as_markup()

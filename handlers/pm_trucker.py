@@ -378,21 +378,23 @@ async def handle_registration_file(callback: CallbackQuery):
 
     try:
         if not os.path.exists(FILES_DIR):
-            await callback.message.answer(f"❌ Registration files directory not found.")
+            # await callback.message.answer(f"❌ Registration files directory not found.")
+            await callback.message.answer("COMING SOON: Driver Information feature is under development.")
             return
             
         files = [f for f in os.listdir(FILES_DIR) if f.lower().endswith(".pdf")]
         found = next((os.path.join(FILES_DIR, f) for f in files if vehicle_name.lower() in f.lower()), None)
 
         if not found:
-            await callback.message.answer(f"❌ No registration file found for **{vehicle_name}**.")
+            # await callback.message.answer(f"❌ No registration file found for **{vehicle_name}**.")
+            await callback.message.answer("COMING SOON: Driver Information feature is under development.")
             return
 
         # await callback.message.answer_document(
         #     document=FSInputFile(found), caption=f"📄 Registration File for {vehicle_name}"
         # )
         await callback.message.answer("COMING SOON: Driver Information feature is under development.")
-        logger.info(f"Sent registration file {found}")
+        # logger.info(f"Sent registration file {found}")
     except Exception as e:
         logger.error(f"Error sending registration file: {e}")
         await callback.message.answer("❌ Error sending registration file.")

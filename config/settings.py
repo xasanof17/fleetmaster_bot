@@ -55,6 +55,8 @@ class Settings:
 
     # Backward compatible key
     FILES_BASE: str = os.getenv("FILES_BASE", os.getenv("FILEBASE", "files"))
+    
+    AUTO_CLEAN_GROUPS: bool = _bool(os.getenv("AUTO_CLEAN_GROUPS", "false"), False)
 
     try:
         CHANNEL_ID: int = int(os.getenv("CHANNEL_ID", "0"))

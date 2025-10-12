@@ -1,7 +1,8 @@
 """
 handlers/documents.py
-Document management and access - FIXED & IMPROVED
+Document management and access — ADMIN-ONLY SEND TO GROUP (per truck, DB-mapped)
 """
+
 import os
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, FSInputFile, Message
@@ -9,15 +10,22 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import StateFilter
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from keyboards.documents import documents_menu_kb, get_documents_vehicle_keyboard
+from keyboards.documents import (
+    documents_menu_kb,
+    get_documents_vehicle_keyboard,
+    get_send_group_keyboard,
+)
 from services.samsara_service import samsara_service
+from services.group_map import get_group_id_for_unit
 from config import settings
 from utils.logger import get_logger
 
+# ─────────────────────────────────────────────
 logger = get_logger(__name__)
 router = Router()
 
 FILES_BASE = settings.FILES_BASE
+ADMINS = set(map(int, settings.ADMINS)) if getattr(settings, "ADMINS", None) else set()
 
 DOC_FOLDERS = {
     "registrations_2026": "registrations_2026",
@@ -31,62 +39,50 @@ class DocumentSearch(StatesGroup):
     waiting_for_truck = State()
 
 
-# 📂 Entry point
+# ─────────────────────────────────────────────
+# MAIN MENU
+# ─────────────────────────────────────────────
 @router.callback_query(F.data == "documents")
-async def show_documents_menu(callback: CallbackQuery):
+async def show_documents_menu(cb: CallbackQuery):
     """Show main documents menu"""
-    await callback.answer()
-    
+    await cb.answer()
     doc_intro = (
-        "📂 *DOCUMENTS* — Fleet & Compliance Files\n\n"
-        "Access key paperwork in one place:\n"
-        "• Registrations and state permits\n"
-        "• Lease agreements and annual inspections\n\n"
-        "Select a document category below to view or download:"
+        "📂 *DOCUMENTS — Fleet & Compliance Files*\n\n"
+        "Access all key documents:\n"
+        "• Vehicle Registrations 2026\n"
+        "• New Mexico Permits\n"
+        "• Lease Agreements\n"
+        "• Annual Inspections 2025\n\n"
+        "Select a category below 👇"
     )
-    
-    try:
-        await callback.message.edit_text(
-            doc_intro,
-            reply_markup=documents_menu_kb(),
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        logger.error(f"Error showing documents menu: {e}")
-        await callback.answer("❌ Error loading documents menu")
+    await cb.message.edit_text(doc_intro, reply_markup=documents_menu_kb(), parse_mode="Markdown")
 
 
-# 📂 Document type chosen
+# ─────────────────────────────────────────────
+# DOCUMENT NAVIGATION
+# ─────────────────────────────────────────────
 @router.callback_query(F.data.startswith("docs:"))
-async def documents_flow(callback: CallbackQuery):
-    """Handle document category selection and navigation"""
-    parts = callback.data.split(":")
+async def documents_flow(cb: CallbackQuery):
+    """Handle navigation inside document categories"""
+    parts = cb.data.split(":")
 
     # docs:<doc_type>
     if len(parts) == 2:
         _, doc_type = parts
-        
-        doc_names = {
-            "registrations_2026": "Vehicle Registrations 2026",
-            "new_mexico": "New Mexico Permits",
-            "lease": "Lease Agreements",
-            "inspection_2025": "Annual Inspections 2025"
-        }
-        
-        doc_title = doc_names.get(doc_type, doc_type.replace('_', ' ').title())
+        doc_title = doc_type.replace("_", " ").title()
 
         kb = InlineKeyboardBuilder()
-        kb.button(text="🏷️ Search by Truck Number", callback_data=f"docs_search:{doc_type}")
+        kb.button(text="🔍 Search by Truck Unit", callback_data=f"docs_search:{doc_type}")
         kb.button(text="🚛 Browse All Vehicles", callback_data=f"docs:{doc_type}:page:1")
         kb.button(text="🔙 Back to Documents", callback_data="documents")
         kb.adjust(1)
 
-        await callback.message.edit_text(
-            f"📂 *{doc_title}*\n\nChoose how to find your document:",
+        await cb.message.edit_text(
+            f"📄 *{doc_title}*\n\nChoose how to find your document:",
             reply_markup=kb.as_markup(),
-            parse_mode="Markdown"
+            parse_mode="Markdown",
         )
-        await callback.answer()
+        await cb.answer()
         return
 
     # docs:<doc_type>:page:<n>
@@ -99,230 +95,181 @@ async def documents_flow(callback: CallbackQuery):
                 vehicles = await service.get_vehicles(use_cache=True)
 
             if not vehicles:
-                await callback.message.edit_text(
+                await cb.message.edit_text(
                     "❌ No vehicles found in system.",
                     reply_markup=documents_menu_kb(),
-                    parse_mode="Markdown"
+                    parse_mode="Markdown",
                 )
-                await callback.answer()
+                await cb.answer()
                 return
 
             kb = get_documents_vehicle_keyboard(vehicles, doc_type, page=page)
-            
-            doc_names = {
-                "registrations_2026": "Vehicle Registrations 2026",
-                "new_mexico": "New Mexico Permits",
-                "lease": "Lease Agreements",
-                "inspection_2025": "Annual Inspections 2025"
-            }
-            
-            doc_title = doc_names.get(doc_type, doc_type.replace('_', ' ').title())
-            
-            await callback.message.edit_text(
-                f"🚛 *{doc_title}*\n\nPage {page} - Select a vehicle:",
+            await cb.message.edit_text(
+                f"🚛 *{doc_type.replace('_',' ').title()}*\n\nSelect a vehicle:",
                 reply_markup=kb,
-                parse_mode="Markdown"
+                parse_mode="Markdown",
             )
-            await callback.answer()
-            
+
         except Exception as e:
-            logger.error(f"Error loading vehicles for documents: {e}")
-            await callback.answer("❌ Error loading vehicles", show_alert=True)
+            logger.error(f"Error loading vehicles: {e}")
+            await cb.answer("❌ Error loading vehicles", show_alert=True)
         return
 
-    # docs:<doc_type>:truck:<id>
+    # docs:<doc_type>:truck:<unit>
     if len(parts) == 4 and parts[2] == "truck":
         _, doc_type, _, truck = parts
-        await send_document_file(callback, truck, doc_type)
-        await callback.answer()
+        await send_document_file(cb, truck, doc_type)
+        await cb.answer()
         return
 
 
-# 📄 Vehicle button → send document
-@router.callback_query(F.data.startswith("docs_vehicle:"))
-async def send_vehicle_document(callback: CallbackQuery):
-    """Send document for selected vehicle"""
-    parts = callback.data.split(":")
-    if len(parts) != 3:
-        await callback.answer("❌ Invalid request", show_alert=True)
-        return
-    
-    _, doc_type, truck_number = parts
-    await send_document_file(callback, truck_number, doc_type)
-
-
-async def send_document_file(callback: CallbackQuery, truck_number: str, doc_type: str):
-    """Helper to send document file"""
+# ─────────────────────────────────────────────
+# SEND DOCUMENT FILE
+# ─────────────────────────────────────────────
+async def send_document_file(cb: CallbackQuery, truck_number: str, doc_type: str):
+    """Send the document; only admins see Send Group button"""
     try:
         file_path = find_document(truck_number, doc_type)
-
-        if file_path:
-            doc_names = {
-                "registrations_2026": "Registration 2026",
-                "new_mexico": "NM Permit",
-                "lease": "Lease Agreement",
-                "inspection_2025": "Inspection 2025"
-            }
-            
-            doc_name = doc_names.get(doc_type, doc_type.replace('_', ' ').title())
-            caption = f"📄 *Truck {truck_number}* - {doc_name}"
-            
-            await callback.message.answer_document(
-                FSInputFile(file_path),
-                caption=caption,
-                parse_mode="Markdown"
-            )
-            logger.info(f"Sent document for truck {truck_number} ({doc_type})")
-        else:
-            doc_names = {
-                "registrations_2026": "Vehicle Registrations 2026",
-                "new_mexico": "New Mexico Permits",
-                "lease": "Lease Agreements",
-                "inspection_2025": "Annual Inspections 2025"
-            }
-            
-            doc_title = doc_names.get(doc_type, doc_type.replace('_', ' ').title())
-            
-            await callback.message.answer(
-                f"❌ No document found for **Truck {truck_number}** in {doc_title}.",
+        if not file_path:
+            await cb.message.answer(
+                f"❌ No document found for *Truck {truck_number}*.",
                 reply_markup=documents_menu_kb(),
-                parse_mode="Markdown"
+                parse_mode="Markdown",
             )
-            logger.warning(f"Document not found for truck {truck_number} in {doc_type}")
-            
-    except Exception as e:
-        logger.error(f"Error sending document for truck {truck_number}: {e}")
-        await callback.message.answer(
-            "❌ Error sending document. Please try again.",
-            reply_markup=documents_menu_kb()
+            return
+
+        caption = f"📄 *Truck {truck_number}* — {doc_type.replace('_',' ').title()}"
+        markup = get_send_group_keyboard(truck_number) if cb.from_user.id in ADMINS else None
+
+        await cb.message.answer_document(
+            FSInputFile(file_path),
+            caption=caption,
+            parse_mode="Markdown",
+            reply_markup=markup,
         )
+        logger.info(f"Sent document for truck {truck_number} ({doc_type})")
+
+    except Exception as e:
+        logger.error(f"Error sending document {truck_number}: {e}")
+        await cb.answer("❌ Error sending document", show_alert=True)
 
 
-# 🔎 User clicks "Search Truck"
+# ─────────────────────────────────────────────
+# ADMIN: SEND FILE TO MAPPED GROUP
+# ─────────────────────────────────────────────
+@router.callback_query(F.data.startswith("send_group:"))
+async def handle_send_group(cb: CallbackQuery):
+    """Admin-only: send this truck's file to its mapped group"""
+    if cb.from_user.id not in ADMINS:
+        await cb.answer("🚫 Only admins can send to groups.", show_alert=True)
+        return
+
+    truck_unit = cb.data.split(":")[1]
+    try:
+        group_id = await get_group_id_for_unit(truck_unit)
+        if not group_id:
+            await cb.answer(f"❌ No group mapped for Truck {truck_unit}", show_alert=True)
+            return
+
+        # Find document for this truck (any folder)
+        for doc_type in DOC_FOLDERS:
+            file_path = find_document(truck_unit, doc_type)
+            if file_path:
+                caption = (
+                    f"📎 *Shared from Bot*\n"
+                    f"🚛 Truck: *{truck_unit}*\n"
+                    f"📄 {doc_type.replace('_',' ').title()}"
+                )
+                await cb.bot.send_document(
+                    chat_id=int(group_id),
+                    document=FSInputFile(file_path),
+                    caption=caption,
+                    parse_mode="Markdown",
+                )
+                await cb.answer("✅ File sent to group!")
+                logger.info(f"Document for Truck {truck_unit} sent to group {group_id}")
+                return
+
+        await cb.answer("❌ No file found for this truck.", show_alert=True)
+
+    except Exception as e:
+        logger.error(f"Error sending document to group: {e}")
+        await cb.answer("❌ Error sending file to group.", show_alert=True)
+
+
+# ─────────────────────────────────────────────
+# SEARCH TRUCK FLOW
+# ─────────────────────────────────────────────
 @router.callback_query(F.data.startswith("docs_search:"))
-async def ask_truck_number(callback: CallbackQuery, state: FSMContext):
+async def ask_truck_number(cb: CallbackQuery, state: FSMContext):
     """Start document search by truck number"""
-    _, doc_type = callback.data.split(":")
+    _, doc_type = cb.data.split(":")
     await state.update_data(doc_type=doc_type)
-    
-    doc_names = {
-        "registrations_2026": "Vehicle Registrations 2026",
-        "new_mexico": "New Mexico Permits",
-        "lease": "Lease Agreements",
-        "inspection_2025": "Annual Inspections 2025"
-    }
-    
-    doc_title = doc_names.get(doc_type, doc_type.replace('_', ' ').title())
-    
-    await callback.message.answer(
-        f"🔎 **Search {doc_title}**\n\n"
-        f"Enter truck number (e.g. 5071, 5096):\n\n"
-        f"❌ Send /cancel to stop.",
-        parse_mode="Markdown"
+    await cb.message.answer(
+        f"🔎 **Search {doc_type.replace('_',' ').title()}**\n\n"
+        "Enter truck number (e.g. 5071):\n\n"
+        "Send /cancel to stop.",
+        parse_mode="Markdown",
     )
     await state.set_state(DocumentSearch.waiting_for_truck)
-    await callback.answer()
+    await cb.answer()
 
 
-# 🔎 User types truck number
 @router.message(StateFilter(DocumentSearch.waiting_for_truck), F.text)
-async def search_truck_number(message: Message, state: FSMContext):
+async def search_truck_number(msg: Message, state: FSMContext):
     """Process truck number search"""
     data = await state.get_data()
     doc_type = data.get("doc_type")
-    truck_number = message.text.strip().lstrip("/")  # Remove / if user types /5071
+    truck_number = msg.text.strip().lstrip("/")
 
     try:
         file_path = find_document(truck_number, doc_type)
-        
-        if file_path:
-            doc_names = {
-                "registrations_2026": "Registration 2026",
-                "new_mexico": "NM Permit",
-                "lease": "Lease Agreement",
-                "inspection_2025": "Inspection 2025"
-            }
-            
-            doc_name = doc_names.get(doc_type, doc_type.replace('_', ' ').title())
-            caption = f"📄 **Truck {truck_number}** - {doc_name}"
-            
-            await message.answer_document(
-                FSInputFile(file_path),
-                caption=caption,
-                parse_mode="Markdown"
-            )
-            logger.info(f"Search: Sent document for truck {truck_number} ({doc_type})")
-        else:
-            doc_names = {
-                "registrations_2026": "Vehicle Registrations 2026",
-                "new_mexico": "New Mexico Permits",
-                "lease": "Lease Agreements",
-                "inspection_2025": "Annual Inspections 2025"
-            }
-            
-            doc_title = doc_names.get(doc_type, doc_type.replace('_', ' ').title())
-            
-            await message.answer(
-                f"❌ No document found for **Truck {truck_number}** in {doc_title}.\n\n"
-                f"💡 Try another truck number or browse all vehicles.",
-                reply_markup=documents_menu_kb(),
-                parse_mode="Markdown"
-            )
-            logger.warning(f"Search: Document not found for truck {truck_number} in {doc_type}")
+        if not file_path:
+            await msg.answer(f"❌ No document found for *Truck {truck_number}*", parse_mode="Markdown")
+            return
+
+        caption = f"📄 **Truck {truck_number}** — {doc_type.replace('_',' ').title()}"
+        markup = get_send_group_keyboard(truck_number) if msg.from_user.id in ADMINS else None
+
+        await msg.answer_document(
+            FSInputFile(file_path),
+            caption=caption,
+            parse_mode="Markdown",
+            reply_markup=markup,
+        )
+        logger.info(f"Search: Sent document for truck {truck_number}")
 
     except Exception as e:
-        logger.error(f"Error searching document for truck {truck_number}: {e}")
-        await message.answer(
-            "❌ Error searching document. Please try again.",
-            reply_markup=documents_menu_kb()
-        )
+        logger.error(f"Error searching document {truck_number}: {e}")
+        await msg.answer("❌ Error searching document.", parse_mode="Markdown")
+    finally:
+        await state.clear()
 
 
-# ❌ Cancel search
 @router.message(F.text == "/cancel", StateFilter(DocumentSearch.waiting_for_truck))
-async def cancel_search(message: Message, state: FSMContext):
+async def cancel_search(msg: Message, state: FSMContext):
     """Cancel document search"""
     await state.clear()
-    await message.answer(
-        "❌ Search cancelled.",
-        reply_markup=documents_menu_kb()
-    )
+    await msg.answer("❌ Search cancelled.", reply_markup=documents_menu_kb())
 
 
-# Helper to find documents
+# ─────────────────────────────────────────────
+# FILE LOCATOR
+# ─────────────────────────────────────────────
 def find_document(truck: str, doc_type: str) -> str | None:
-    """
-    Find document file for a truck in specified category
-    
-    Args:
-        truck: Truck number (e.g. "5071")
-        doc_type: Document category (e.g. "registrations_2026")
-    
-    Returns:
-        Full path to document file if found, None otherwise
-    """
+    """Locate a PDF document for the given truck & doc type"""
     folder = DOC_FOLDERS.get(doc_type)
     if not folder:
-        logger.warning(f"Unknown document type: {doc_type}")
         return None
 
     folder_path = os.path.join(FILES_BASE, folder)
-    
     if not os.path.exists(folder_path):
-        logger.warning(f"Document folder not found: {folder_path}")
         return None
 
     try:
-        # Look for files starting with truck number
         for filename in os.listdir(folder_path):
-            if filename.startswith(truck) and filename.lower().endswith('.pdf'):
-                file_path = os.path.join(folder_path, filename)
-                logger.debug(f"Found document: {file_path}")
-                return file_path
-        
-        logger.debug(f"No document found for truck {truck} in {folder_path}")
-        return None
-        
+            if filename.startswith(truck) and filename.lower().endswith(".pdf"):
+                return os.path.join(folder_path, filename)
     except Exception as e:
-        logger.error(f"Error searching for document: {e}")
-        return None
+        logger.error(f"Error scanning {folder_path}: {e}")
+    return None
