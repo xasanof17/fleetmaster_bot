@@ -109,6 +109,10 @@ class GooglePMService:
             if status == "BROKEN":
                 continue
             left = _safe_int(r.get("Left"))
+
+            if "URGENT" in status:
+                continue
+
             if left <= mile_limit:
                 # Try different possible column names
                 truck = str(r.get("Truck Number") or r.get("TRUCK NUMBER") or r.get("Truck") or "").strip()
