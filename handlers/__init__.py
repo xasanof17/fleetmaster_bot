@@ -12,6 +12,7 @@ from handlers.admin import router as admin_router
 from handlers.admin_dbcheck import router as admin_dbcheck_router
 from handlers.auto_link_groups import router as auto_link_router
 from handlers.sync_groups import router as sync_groups_router
+from handlers.documents import router as documents_router
 
 # Import search router if exists, otherwise skip
 try:
@@ -20,14 +21,6 @@ try:
 except ImportError:
     has_search = False
     search_router = None
-
-# Import documents router if exists
-try:
-    from handlers.documents import router as documents_router
-    has_documents = True
-except ImportError:
-    has_documents = False
-    documents_router = None
 
 # List of all routers to include in dispatcher
 routers = [
@@ -43,13 +36,11 @@ routers = [
     # Main feature handlers
     pm_services_router,
     pm_trucker_router,
+    documents_router,
 ]
 
 # Add optional routers if they exist
 if has_search and search_router:
     routers.append(search_router)
-
-if has_documents and documents_router:
-    routers.append(documents_router)
 
 __all__ = ["routers"]

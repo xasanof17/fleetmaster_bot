@@ -7,6 +7,7 @@ def build_static_location_message(vehicle: Dict[str, Any], location: Dict[str, A
     address = location.get("address") or "Unknown location"
     ts = format_timestamp(location.get("time"))
     msg = f"""
+🚛**Truck**: {vehicle.get("name", "N/A")}\n
 📍**Address:** {address}\n
 ⏰**Time:** {ts}
 """.strip()
@@ -18,7 +19,8 @@ def build_live_location_message(vehicle: Dict[str, Any], location: Dict[str, Any
     address = location.get("address") or "Unknown location"
     ts = format_timestamp(location.get("time"))
     msg = f"""
-📡 **Live Location Started**
+🚛**Truck**: {vehicle.get("name", "N/A")}\n
+📡**Live Location Started**\n
 📍**Address:** {address}\n
 ⏳**Last Update:** {ts}
 """.strip()

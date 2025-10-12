@@ -1,7 +1,7 @@
 """
 services/group_map.py
 Handles database interactions for truck ↔ group mapping.
-Now includes a DB sanity checker to detect and auto-fix inconsistencies.
+FIXED: Auto-cleanup inaccessible groups on startup
 """
 
 import asyncpg
@@ -219,13 +219,14 @@ def sync_upsert(unit: str, chat_id: int, title: str):
     """Helper to allow synchronous scripts to add mappings."""
     asyncio.run(upsert_mapping(unit, chat_id, title))
 
+
 # ----------------------------------------------------------------
-# Group Scanner for Startup
+# Group Scanner for Startup (FIXED - Auto-cleanup)
 # ----------------------------------------------------------------
 async def verify_existing_groups(bot):
     """
     Scan and refresh all known groups on bot startup.
-    Ensures mappings stay accurate even after bot restarts.
+    Auto-removes inaccessible groups to keep DB clean.
     """
     await init_pool()
     pool = await get_pool()
@@ -234,24 +235,48 @@ async def verify_existing_groups(bot):
         rows = await conn.fetch("SELECT unit, chat_id, title FROM public.truck_groups")
         logger.info(f"🔍 Verifying {len(rows)} known group mappings...")
 
+        verified = 0
+        cleaned = 0
+
         for row in rows:
             unit, chat_id, title = row["unit"], row["chat_id"], row["title"]
 
             try:
                 chat = await bot.get_chat(chat_id)
+                
                 if not chat or not chat.title:
-                    logger.warning(f"⚠️ Group {chat_id} not accessible or missing title")
+                    logger.warning(f"⚠️ Group {chat_id} not accessible, removing from DB...")
+                    await conn.execute(
+                        "DELETE FROM public.truck_groups WHERE chat_id = $1",
+                        chat_id
+                    )
+                    cleaned += 1
                     continue
 
-                # refresh title if changed
+                # Refresh title if changed
                 if chat.title != title:
                     await conn.execute(
                         "UPDATE public.truck_groups SET title=$1 WHERE chat_id=$2",
                         chat.title, chat_id
                     )
                     logger.info(f"🔁 Updated title for {unit} → {chat.title}")
+                
+                verified += 1
 
             except Exception as e:
-                logger.warning(f"💥 Could not verify chat {chat_id}: {e}")
+                # If chat not found or forbidden, remove from DB
+                if "chat not found" in str(e).lower() or "forbidden" in str(e).lower():
+                    logger.info(f"🧹 Cleaning up inaccessible group: {chat_id} ({title})")
+                    await conn.execute(
+                        "DELETE FROM public.truck_groups WHERE chat_id = $1",
+                        chat_id
+                    )
+                    cleaned += 1
+                else:
+                    logger.warning(f"⚠️ Error verifying chat {chat_id}: {e}")
 
-        logger.info("✅ Existing group scan complete.")
+        logger.info(
+            f"✅ Group scan complete: "
+            f"Verified={verified}, Cleaned={cleaned}, "
+            f"Total remaining={verified}"
+        )

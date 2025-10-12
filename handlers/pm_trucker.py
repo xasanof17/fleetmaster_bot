@@ -284,7 +284,7 @@ async def refresh_cache(callback: CallbackQuery):
 async def show_location_choice(callback: CallbackQuery):
     """Show static/live location choice"""
     vehicle_id = callback.data.split(":", 1)[1]
-    await callback.message.edit_text(
+    await callback.message.answer(
         "📍 **Choose Location Type**\n\n"
         "🗺 **Static** - One-time location\n"
         "📡 **Live** - Updates every 30 seconds for 5 minutes",
@@ -392,9 +392,10 @@ async def handle_registration_file(callback: CallbackQuery):
             await callback.message.answer(f"❌ No registration file found for **{vehicle_name}**.")
             return
 
-        await callback.message.answer_document(
-            document=FSInputFile(found), caption=f"📄 Registration File for {vehicle_name}"
-        )
+        # await callback.message.answer_document(
+        #     document=FSInputFile(found), caption=f"📄 Registration File for {vehicle_name}"
+        # )
+        await callback.message.answer("COMING SOON: Driver Information feature is under development.")
         logger.info(f"Sent registration file {found}")
     except Exception as e:
         logger.error(f"Error sending registration file: {e}")
