@@ -276,8 +276,6 @@ async def search_truck_number(message: Message, state: FSMContext):
             "❌ Error searching document. Please try again.",
             reply_markup=documents_menu_kb()
         )
-    finally:
-        await state.clear()
 
 
 # ❌ Cancel search

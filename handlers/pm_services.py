@@ -301,7 +301,6 @@ async def process_pm_search(msg: Message, state: FSMContext):
         await msg.reply("Please enter a valid unit number.")
         return
     
-    await state.clear()
     
     try:
         # Search in Google Sheet

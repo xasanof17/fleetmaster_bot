@@ -239,8 +239,6 @@ async def process_vehicle_search(message: Message, state: FSMContext):
             )
         except:
             await message.reply("❌ Search failed.")
-    finally:
-        await state.clear()
 
 
 @router.message(VehicleSearchState.waiting_for_query, F.text == "/cancel")
