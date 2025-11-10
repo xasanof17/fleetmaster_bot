@@ -313,7 +313,13 @@ async def get_driver_details(driver_id: str) -> dict:
 # ────────────────────────── TEMPLATE RENDERERS ────────────────────────
 def _veh_name(data: dict) -> str:
     v = data.get("vehicle", {}) if isinstance(data, dict) else {}
-    return v.get("name") or "Unknown"
+    return (
+        v.get("name")
+        or v.get("id")
+        or v.get("serial")
+        or v.get("licensePlate")
+        or "Unknown"
+    )
 
 def _driver_name(data: dict) -> str:
     d = data.get("driver", {}) if isinstance(data, dict) else {}
@@ -589,18 +595,27 @@ def render_template(template_key: str, data: dict) -> str:
             time=fmt_time(),
         )
     # GENERAL fallback
-    return (
-        "📋 General\n\n"
-        "🚛 Vehicle: {veh}\n"
-        "📍 Location: {loc}\n"
-        "📅 Date: {date}\n"
-        "🕐 Time: {time}"
-    ).format(
-        veh=escape(_veh_name(data)),
-        loc=escape(_address_text(data)),
-        date=fmt_date(),
-        time=fmt_time(),
-    )
+    if template_key == "GENERAL":
+        evt_type = data.get("eventType") or "Unknown Type"
+        alert_name = data.get("alertName") or data.get("name") or evt_type
+        v = data.get("vehicle", {}) or {}
+        veh_name = (
+            v.get("name")
+            or v.get("id")
+            or v.get("serial")
+            or v.get("licensePlate")
+            or "Unknown"
+        )
+        a = data.get("address", {}) or {}
+        loc = a.get("formattedAddress") or a.get("name") or "Unknown"
+        return (
+            f"📋 UNKNOWN ALERT: {escape(alert_name)}\n\n"
+            f"🚛 Vehicle: {escape(veh_name)}\n"
+            f"📍 Location: {escape(loc)}\n"
+            f"⚙️ Type: {escape(evt_type)}\n"
+            f"📅 Date: {fmt_date()}\n"
+            f"🕐 Time: {fmt_time()}"
+        )
 
 # ───────────────────────────── WEBHOOKS ───────────────────────────────
 async def handle_samsara(request: web.Request):
@@ -694,6 +709,7 @@ def create_app():
     app.router.add_get("/health", handle_health)
     app.router.add_get("/test", handle_test)
     app.router.add_post("/samsara", handle_samsara)
+    app.router.add_get("/samsara", lambda _: web.Response(text="Samsara webhook endpoint. Use POST.", status=200))
     return app
 
 # ───────────────────────────── STARTUP ────────────────────────────────
