@@ -497,8 +497,8 @@ def pick_template_and_topic(event: dict) -> Tuple[str, Tuple[int, Optional[int],
     # 2) Address ID mapping
     address = (data or {}).get("address", {}) if isinstance(data, dict) else {}
     addr_id = address.get("id")
-    if addr_id and addr_id in ADDRESS_MAPPINGS:
-        chat_id, thread_id, topic = ADDRESS_MAPPINGS[addr_id]
+    if addr_id and addr_id in ALERT_MAPPINGS:
+        chat_id, thread_id, topic = ALERT_MAPPINGS[addr_id]["topic"]
         # choose by address topic name
         if "WEIGHT" in topic:
             return "WEIGHT", (chat_id, thread_id, topic)
