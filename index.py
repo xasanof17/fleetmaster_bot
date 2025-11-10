@@ -636,7 +636,23 @@ async def handle_samsara(request: web.Request):
         for ev in events:
             if not isinstance(ev, dict):
                 continue
-            data = ev.get("data", ev)
+
+            # normalize Samsara structure
+            data = (
+                ev.get("data")
+                or ev.get("alert", {}).get("data")
+                or ev.get("alert")
+                or ev
+            )
+
+            # flatten vehicle/address/driver if buried deeper
+            if "vehicle" not in data and "vehicle" in ev:
+                data["vehicle"] = ev["vehicle"]
+            if "address" not in data and "address" in ev:
+                data["address"] = ev["address"]
+            if "driver" not in data and "driver" in ev:
+                data["driver"] = ev["driver"]
+
             template_key, (chat_id, thread_id, topic_name) = pick_template_and_topic(ev)
 
             # enrich vehicle/driver names if missing
@@ -655,7 +671,6 @@ async def handle_samsara(request: web.Request):
                     data["driver"] = d
 
             text = render_template(template_key, data)
-
             send_kwargs = {"chat_id": chat_id, "text": text}
             if thread_id:
                 send_kwargs["message_thread_id"] = thread_id
