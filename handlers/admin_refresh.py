@@ -1,3 +1,5 @@
+# handlers/admin_refresh.py
+
 from aiogram import Router
 from aiogram.types import Message
 from aiogram.filters import Command
@@ -18,17 +20,18 @@ async def refresh_all_groups(msg: Message):
     if msg.from_user.id not in ADMINS:
         return
 
-    await msg.answer("🔄 Refreshing all truck groups… this may take a moment.")
+    await msg.answer("🔄 Refreshing all truck groups… please wait.")
 
     groups = await list_all_groups()
     if not groups:
-        return await msg.answer("⚠️ No groups in DB to refresh.")
+        return await msg.answer("⚠️ No groups found in DB.")
 
     updated = 0
     skipped = 0
 
     for rec in groups:
         chat_id = rec["chat_id"]
+
         try:
             chat = await msg.bot.get_chat(chat_id)
             title = (chat.title or "").strip()
@@ -48,7 +51,7 @@ async def refresh_all_groups(msg: Message):
 
         except Exception as e:
             skipped += 1
-            logger.warning(f"[REFRESH] Failed chat={chat_id}: {e}")
+            logger.warning(f"[REFRESH] Failed chat {chat_id}: {e}")
 
     await msg.answer(
         f"✅ Refresh finished!\n"

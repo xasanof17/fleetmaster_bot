@@ -4,98 +4,122 @@ import re
 import emoji
 
 # ─────────────────────────────────────────────
-# REGEXES
+# REGEX DEFINITIONS (FINAL VERSION)
 # ─────────────────────────────────────────────
 
-# Truck unit: 3–5 digits anywhere
+# Truck unit ALWAYS 3–5 digits, usually at start
 UNIT_RE = re.compile(r"\b(\d{3,5})\b")
 
-# US-style phone pattern (we'll normalize to (XXX) XXX-XXXX)
+# Ultra-aggressive phone matcher (7–20 digits with symbols)
 PHONE_RE = re.compile(
-    r"(\+?1[\s\-\.]?)?\(?\d{3}\)?[\s\-\.]?\d{3}[\s\-\.]?\d{4}"
+    r"(\+?\d[\d\-\.\s\(\)]{5,30}\d)"
 )
 
-# Driver name: optional Mr/Ms/Driver + 1–4 name parts
+# Driver name detector:
+# Supports Mr/Ms/Mrs/Driver but DOES NOT REQUIRE THEM.
+# Supports 1–4 name parts, African/Indian/English.
 DRIVER_RE = re.compile(
-    r"(?:Mr|Ms|Mrs|Driver)\s+[A-Za-z]{2,20}(?:\s+[A-Za-z]{2,20}){0,3}"
+    r"(?:Mr|Ms|Mrs|Driver)?\s*"
+    r"([A-Za-z][A-Za-z\-]{1,20}"
+    r"(?:\s+[A-Za-z][A-Za-z\-]{0,20}){0,3})"
 )
 
 
 # ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────
-def _strip_emojis(text: str) -> str:
+
+def _strip_emoji(text: str) -> str:
     return emoji.replace_emoji(text or "", "")
 
 
-def _normalize_separators(text: str) -> str:
-    # Replace junk separators with spaces
-    text = re.sub(r"[#\-\|_/.,]+", " ", text)
-    # Collapse spaces
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
+def _normalize(text: str) -> str:
+    """Remove emojis + replace symbols with spaces + collapse spaces."""
+    if not text:
+        return ""
+
+    t = _strip_emoji(text)
+
+    t = re.sub(r"[\#\-\_\|\.,\/]+", " ", t)
+    t = re.sub(r"\s+", " ", t)
+
+    return t.strip()
 
 
 def _format_us_phone(raw: str | None) -> str | None:
+    """Extract last 10 digits and return (XXX) XXX-XXXX."""
     if not raw:
         return None
-    # keep only digits
+
     digits = re.sub(r"\D", "", raw)
     if len(digits) < 10:
         return None
-    # last 10 digits as US number
+
     digits = digits[-10:]
-    area = digits[0:3]
-    pref = digits[3:6]
-    line = digits[6:]
-    return f"({area}) {pref}-{line}"
+
+    return f"({digits[0:3]}) {digits[3:6]}-{digits[6:]}"
 
 
 # ─────────────────────────────────────────────
-# MAIN PARSER
+# PARSER ENGINE
 # ─────────────────────────────────────────────
+
 def parse_title(title: str) -> dict:
     """
-    Parse Telegram group title and extract:
-      • unit
-      • driver
-      • phone (formatted as (XXX) XXX-XXXX)
+    Extract:
+        • unit (digits)
+        • driver (1–4 name parts)
+        • phone (ANY format → formatted)
     """
 
     original = title or ""
-    # remove emojis for logic, keep original for reference if needed
-    cleaned = _strip_emojis(original)
 
-    # truck unit
-    unit = None
+    # Step 1: Clean title (remove emojis, normalize separators)
+    cleaned = _normalize(original)
+
+    # ─────────────────────────────────────────────
+    # EXTRACT UNIT
+    # ─────────────────────────────────────────────
     m_unit = UNIT_RE.search(cleaned)
-    if m_unit:
-        unit = m_unit.group(1)
+    unit = m_unit.group(1) if m_unit else None
 
-    # phone
-    phone = None
-    m_phone = PHONE_RE.search(cleaned)
-    phone_raw = m_phone.group(0) if m_phone else None
-    phone = _format_us_phone(phone_raw) if phone_raw else None
+    # ─────────────────────────────────────────────
+    # EXTRACT PHONE
+    # ─────────────────────────────────────────────
+    m_phone = PHONE_RE.search(original)
+    phone_raw = m_phone.group(1) if m_phone else None
+    phone = _format_us_phone(phone_raw)
 
-    # remove unit + phone from text before name detection
-    normalized = _normalize_separators(cleaned)
+    # ─────────────────────────────────────────────
+    # PREP TEXT FOR NAME EXTRACTION
+    # ─────────────────────────────────────────────
+    tmp = cleaned
+
     if unit:
-        normalized = normalized.replace(unit, " ")
-    if phone_raw:
-        normalized = normalized.replace(phone_raw, " ")
-    normalized = _normalize_separators(normalized)
+        tmp = tmp.replace(unit, " ")
 
-    # driver name
+    if phone_raw:
+        tmp = tmp.replace(phone_raw, " ")
+
+    tmp = _normalize(tmp)
+
+    # ─────────────────────────────────────────────
+    # EXTRACT DRIVER NAME (Most flexible version)
+    # ─────────────────────────────────────────────
     driver = None
-    m_driver = DRIVER_RE.search(normalized)
+    m_driver = DRIVER_RE.search(tmp)
     if m_driver:
-        driver = m_driver.group(0).strip()
+        driver = m_driver.group(1).strip()
+
+    # Fix stupid cases like just "Mr"
+    if driver and len(driver) < 2:
+        driver = None
 
     return {
         "unit": unit,
         "driver": driver,
         "phone": phone,
         "raw_title": original,
-        "normalized": normalized,
+        "clean_title": cleaned,
+        "name_source": tmp,  # for debugging
     }
