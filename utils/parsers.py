@@ -4,24 +4,27 @@ import re
 import emoji
 
 # ─────────────────────────────────────────────
-# REGEX DEFINITIONS (FINAL VERSION)
+# REGEX DEFINITIONS (FINAL V4 ENGINE)
 # ─────────────────────────────────────────────
 
-# Truck unit ALWAYS 3–5 digits, usually at start
-UNIT_RE = re.compile(r"\b(\d{3,5})\b")
-
-# Ultra-aggressive phone matcher (7–20 digits with symbols)
-PHONE_RE = re.compile(
-    r"(\+?\d[\d\-\.\s\(\)]{5,30}\d)"
+# Truck unit ALWAYS 3–5 digits, often first but not required
+UNIT_RE = re.compile(
+    r"\b(\d{3,5})\b"
 )
 
-# Driver name detector:
-# Supports Mr/Ms/Mrs/Driver but DOES NOT REQUIRE THEM.
-# Supports 1–4 name parts, African/Indian/English.
+# Ultra-flexible phone detection:
+# Accepts ANY mix that contains 7–20 digits total.
+PHONE_RE = re.compile(
+    r"(\+?\d[\d\s\-\.\(\)]{5,40}\d)"
+)
+
+# Driver name:
+# Supports African / Indian / English multi-part names
+# Allows hyphens, prefixes, 1–4 words
 DRIVER_RE = re.compile(
     r"(?:Mr|Ms|Mrs|Driver)?\s*"
     r"([A-Za-z][A-Za-z\-]{1,20}"
-    r"(?:\s+[A-Za-z][A-Za-z\-]{0,20}){0,3})"
+    r"(?:\s+[A-Za-z][A-Za-z\-]{1,20}){0,3})"
 )
 
 
@@ -30,68 +33,77 @@ DRIVER_RE = re.compile(
 # ─────────────────────────────────────────────
 
 def _strip_emoji(text: str) -> str:
+    """Remove emojis but keep text intact."""
     return emoji.replace_emoji(text or "", "")
 
 
 def _normalize(text: str) -> str:
-    """Remove emojis + replace symbols with spaces + collapse spaces."""
+    """Normalize symbols to spaces + collapse whitespace."""
     if not text:
         return ""
 
     t = _strip_emoji(text)
 
-    t = re.sub(r"[\#\-\_\|\.,\/]+", " ", t)
+    # Replace separators (# - _ | . , / etc)
+    t = re.sub(r"[\#\-\_\|\.,\/\(\)]+", " ", t)
+
+    # Collapse multiple spaces
     t = re.sub(r"\s+", " ", t)
 
     return t.strip()
 
 
 def _format_us_phone(raw: str | None) -> str | None:
-    """Extract last 10 digits and return (XXX) XXX-XXXX."""
+    """Normalize ANY phone format into (XXX) XXX-XXXX."""
     if not raw:
         return None
 
+    # keep digits only
     digits = re.sub(r"\D", "", raw)
+
+    # require at least 10 digits
     if len(digits) < 10:
         return None
 
+    # last 10 digits = US number
     digits = digits[-10:]
 
-    return f"({digits[0:3]}) {digits[3:6]}-{digits[6:]}"
+    return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
 
 
 # ─────────────────────────────────────────────
-# PARSER ENGINE
+# CORE PARSER
 # ─────────────────────────────────────────────
 
 def parse_title(title: str) -> dict:
     """
     Extract:
-        • unit (digits)
-        • driver (1–4 name parts)
-        • phone (ANY format → formatted)
+        ✔ unit (3–5 digits)
+        ✔ driver (1–4 word name)
+        ✔ phone (ANY style → normalized)
     """
 
     original = title or ""
 
-    # Step 1: Clean title (remove emojis, normalize separators)
+    # Clean version without emojis + normalized spacing
     cleaned = _normalize(original)
 
     # ─────────────────────────────────────────────
-    # EXTRACT UNIT
+    # 1) Extract Unit
     # ─────────────────────────────────────────────
     m_unit = UNIT_RE.search(cleaned)
     unit = m_unit.group(1) if m_unit else None
 
     # ─────────────────────────────────────────────
-    # EXTRACT PHONE
+    # 2) Extract Phone ANYWHERE
     # ─────────────────────────────────────────────
     m_phone = PHONE_RE.search(original)
     phone_raw = m_phone.group(1) if m_phone else None
     phone = _format_us_phone(phone_raw)
 
     # ─────────────────────────────────────────────
-    # PREP TEXT FOR NAME EXTRACTION
+    # 3) Prepare temp text for name extraction
+    #    (remove the phone + unit first)
     # ─────────────────────────────────────────────
     tmp = cleaned
 
@@ -104,22 +116,25 @@ def parse_title(title: str) -> dict:
     tmp = _normalize(tmp)
 
     # ─────────────────────────────────────────────
-    # EXTRACT DRIVER NAME (Most flexible version)
+    # 4) Extract driver name
     # ─────────────────────────────────────────────
     driver = None
     m_driver = DRIVER_RE.search(tmp)
     if m_driver:
         driver = m_driver.group(1).strip()
 
-    # Fix stupid cases like just "Mr"
+    # Remove false positives like “Mr” or 1-letter
     if driver and len(driver) < 2:
         driver = None
 
+    # ─────────────────────────────────────────────
+    # RETURN
+    # ─────────────────────────────────────────────
     return {
         "unit": unit,
         "driver": driver,
         "phone": phone,
         "raw_title": original,
         "clean_title": cleaned,
-        "name_source": tmp,  # for debugging
+        "name_source": tmp,      # Useful for debugging name detection
     }

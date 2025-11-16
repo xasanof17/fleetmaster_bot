@@ -17,14 +17,16 @@ ADMINS = set(settings.ADMINS or [])
 
 @router.message(Command("refresh_all_groups"))
 async def refresh_all_groups(msg: Message):
-    if msg.from_user.id not in ADMINS:
-        return
+    """Re-scan every known truck group using the latest parser (unit/driver/phone)."""
 
-    await msg.answer("🔄 Refreshing all truck groups… please wait.")
+    if msg.from_user.id not in ADMINS:
+        return  # not admin — silent ignore
+
+    await msg.answer("🔄 Refreshing all truck groups…\nThis may take a few seconds.")
 
     groups = await list_all_groups()
     if not groups:
-        return await msg.answer("⚠️ No groups found in DB.")
+        return await msg.answer("⚠️ Database is empty — no groups to refresh.")
 
     updated = 0
     skipped = 0
@@ -33,17 +35,20 @@ async def refresh_all_groups(msg: Message):
         chat_id = rec["chat_id"]
 
         try:
+            # Fetch latest group title from Telegram
             chat = await msg.bot.get_chat(chat_id)
             title = (chat.title or "").strip()
 
+            # Parse title using new aggressive parser
             parsed = parse_title(title)
 
+            # Update DB
             await upsert_mapping(
-                parsed["unit"],
-                chat_id,
-                title,
-                parsed["driver"],
-                parsed["phone"],
+                unit=parsed["unit"],
+                chat_id=chat_id,
+                title=title,
+                driver_name=parsed["driver"],
+                phone_number=parsed["phone"],
             )
 
             updated += 1
@@ -51,10 +56,12 @@ async def refresh_all_groups(msg: Message):
 
         except Exception as e:
             skipped += 1
-            logger.warning(f"[REFRESH] Failed chat {chat_id}: {e}")
+            logger.warning(f"[REFRESH] FAILED chat_id={chat_id}: {e}")
 
+    # Final admin result message
     await msg.answer(
-        f"✅ Refresh finished!\n"
-        f"• Updated: {updated}\n"
-        f"• Skipped: {skipped}"
+        f"✅ **Refresh Complete**\n"
+        f"• Updated: **{updated}** groups\n"
+        f"• Skipped: **{skipped}** (unavailable or deleted)\n"
+        f"🗂 Parser Version: **V4.0**"
     )

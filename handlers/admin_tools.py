@@ -1,4 +1,8 @@
 # handlers/admin_tools.py
+"""
+Admin Tools for FleetMaster Bot
+Uses NEW V4 Parser logic (unit, driver, phone)
+"""
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -18,6 +22,9 @@ logger = get_logger(__name__)
 ADMINS = set(settings.ADMINS or [])
 
 
+# ------------------------------------------------------------
+# Helper
+# ------------------------------------------------------------
 def is_admin(uid: int) -> bool:
     return uid in ADMINS
 
@@ -32,20 +39,24 @@ async def cmd_groupinfo(msg: Message):
 
     args = msg.text.split()
     if len(args) < 2:
-        return await msg.answer("Usage: `/groupinfo <unit>`", parse_mode="Markdown")
+        return await msg.answer(
+            "Usage:\n`/groupinfo <unit>`",
+            parse_mode="Markdown"
+        )
 
-    unit = args[1]
+    unit = args[1].strip()
     rec = await get_truck_group(unit)
 
     if not rec:
         return await msg.answer(f"❌ No group found for `{unit}`")
 
     await msg.answer(
-        f"### 📦 Group Info for {unit}\n"
-        f"**Driver:** {rec.get('driver_name') or '❓'}\n"
-        f"**Phone:** {rec.get('phone_number') or '❓'}\n"
+        f"### 📦 Group Info for `{unit}`\n"
+        f"**Driver:** {rec.get('driver_name') or '❓ Unknown'}\n"
+        f"**Phone:** {rec.get('phone_number') or '❓ Unknown'}\n"
         f"**Chat ID:** `{rec.get('chat_id')}`\n"
         f"**Title:** {rec.get('title')}\n"
+        f"**Created:** {rec.get('created_at')}\n"
         f"**Updated:** {rec.get('updated_at')}",
         parse_mode="Markdown",
     )
@@ -63,17 +74,21 @@ async def cmd_bychat(msg: Message):
     if len(args) < 2:
         return await msg.answer("Usage: `/bychat <chat_id>`")
 
-    chat_id = int(args[1])
+    try:
+        chat_id = int(args[1])
+    except:
+        return await msg.answer("❌ Chat ID must be an integer.")
+
     rec = await get_group_by_chat(chat_id)
 
     if not rec:
-        return await msg.answer("❌ No record for that chat ID.")
+        return await msg.answer("❌ No record found for that chat ID.")
 
     await msg.answer(
-        f"### 🔎 Chat Lookup\n"
+        f"### 🔎 Chat Lookup: `{chat_id}`\n"
         f"**Unit:** {rec.get('unit')}\n"
-        f"**Driver:** {rec.get('driver_name')}\n"
-        f"**Phone:** {rec.get('phone_number')}\n"
+        f"**Driver:** {rec.get('driver_name') or '❓'}\n"
+        f"**Phone:** {rec.get('phone_number') or '❓'}\n"
         f"**Title:** {rec.get('title')}\n"
         f"**Updated:** {rec.get('updated_at')}",
         parse_mode="Markdown",
@@ -82,6 +97,7 @@ async def cmd_bychat(msg: Message):
 
 # ------------------------------------------------------------
 # /find <keyword>
+# Search by driver, phone, or unit
 # ------------------------------------------------------------
 @router.message(Command("find"))
 async def cmd_find(msg: Message):
@@ -92,27 +108,51 @@ async def cmd_find(msg: Message):
     if len(args) < 2:
         return await msg.answer("Usage: `/find <keyword>`")
 
-    keyword = args[1].lower()
+    keyword = args[1].lower().strip()
     groups = await list_all_groups()
 
-    found = []
+    results = []
     for g in groups:
         if (
-            keyword in (g.get("driver_name") or "").lower()
-            or keyword in (g.get("phone_number") or "").lower()
-            or keyword in (g.get("unit") or "").lower()
+            keyword in (g.get("driver_name") or "").lower() or
+            keyword in (g.get("phone_number") or "").lower() or
+            keyword in (g.get("unit") or "").lower()
         ):
-            found.append(g)
+            results.append(g)
 
-    if not found:
-        return await msg.answer("❌ No matches found.")
+    if not results:
+        return await msg.answer("❌ No records matched your search.")
 
-    text = "### 🔍 Matches:\n"
-    for g in found:
+    text = "### 🔍 Search Results\n"
+    for g in results:
         text += (
-            f"\n**{g['unit']}** — {g['driver_name'] or '?'} "
-            f"({g['phone_number'] or 'No phone'})\n"
-            f"`Chat:` {g['chat_id']} | *{g['title']}*"
+            f"\n**Unit:** {g['unit']}\n"
+            f"Driver: {g['driver_name'] or '❓'}\n"
+            f"Phone: {g['phone_number'] or '❓'}\n"
+            f"`Chat:` {g['chat_id']} | *{g['title']}*\n"
+        )
+
+    await msg.answer(text, parse_mode="Markdown")
+
+
+# ------------------------------------------------------------
+# /allgroups
+# ------------------------------------------------------------
+@router.message(Command("allgroups"))
+async def cmd_allgroups(msg: Message):
+    if not is_admin(msg.from_user.id):
+        return
+
+    groups = await list_all_groups()
+    if not groups:
+        return await msg.answer("❌ No groups in DB.")
+
+    text = "### 📋 All Truck Groups\n"
+    for g in groups:
+        text += (
+            f"\n**{g['unit']}** — {g['driver_name'] or '❓'} "
+            f"({g['phone_number'] or '❓'})\n"
+            f"`Chat:` {g['chat_id']} — *{g['title']}*\n"
         )
 
     await msg.answer(text, parse_mode="Markdown")
@@ -120,6 +160,7 @@ async def cmd_find(msg: Message):
 
 # ------------------------------------------------------------
 # /missed
+# List groups missing driver or phone
 # ------------------------------------------------------------
 @router.message(Command("missed"))
 async def cmd_missed(msg: Message):
@@ -127,18 +168,21 @@ async def cmd_missed(msg: Message):
         return
 
     groups = await list_all_groups()
-    missing = [g for g in groups if not g["driver_name"] or not g["phone_number"]]
+    missing = [
+        g for g in groups
+        if not g.get("driver_name") or not g.get("phone_number")
+    ]
 
     if not missing:
-        return msg.answer("🎉 All groups have complete data!")
+        return await msg.answer("🎉 All groups have full driver + phone info!")
 
     text = "### ⚠️ Missing Driver / Phone\n"
     for g in missing:
         text += (
-            f"\n**{g['unit']}**\n"
-            f"Driver: {g['driver_name'] or '❌ Missing'}\n"
-            f"Phone: {g['phone_number'] or '❌ Missing'}\n"
-            f"`Chat:` {g['chat_id']} | {g['title']}\n"
+            f"\n**Unit:** {g['unit']}\n"
+            f"Driver: {g['driver_name'] or '❗ Missing'}\n"
+            f"Phone: {g['phone_number'] or '❗ Missing'}\n"
+            f"`Chat:` {g['chat_id']} — {g['title']}\n"
         )
 
     await msg.answer(text, parse_mode="Markdown")
