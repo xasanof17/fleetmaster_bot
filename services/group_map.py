@@ -1,11 +1,26 @@
 """
 services/group_map.py
-Handles database interactions for truck ↔ group mapping.
-SAFE VERSION ✅ Keeps unlink_chat() for compatibility and removes auto-cleanup.
+FleetMaster — Truck/Group Mapping Database Layer
+SAFE • MODERN • PRODUCTION READY
+
+Handles:
+    • unit (truck number)
+    • chat_id (telegram group id)
+    • title (group title)
+    • driver_name
+    • phone_number
+    • created_at
+    • updated_at
+
+This version:
+    - Auto-creates/migrates table
+    - NEVER deletes links automatically
+    - Fast UPSERT (unit is PK)
+    - Safe read helpers
+    - Clean consistent API
 """
 
 import asyncpg
-import asyncio
 from typing import Optional, Dict, Any, List
 from config.settings import settings
 from utils.logger import get_logger
@@ -13,227 +28,205 @@ from config.db import get_pool
 
 logger = get_logger(__name__)
 
-_pool: Optional[asyncpg.Pool] = None
 
+# ============================================================
+# TABLE SETUP & MIGRATION
+# ============================================================
+async def ensure_table():
+    """Create required table + add missing columns safely."""
+    pool = await get_pool()
 
-# ----------------------------------------------------------------
-# CONNECTION
-# ----------------------------------------------------------------
-async def init_pool():
-    """Initialize the async Postgres connection pool."""
-    global _pool
-    if _pool is not None:
-        return _pool
-
-    try:
-        _pool = await asyncpg.create_pool(
-            dsn=settings.DATABASE_URL,
-            min_size=1,
-            max_size=5,
-            command_timeout=60,
-        )
-        logger.info("🟢 Database pool initialized successfully.")
-        await ensure_table_exists()
-        return _pool
-    except Exception as e:
-        logger.error(f"❌ Failed to initialize DB pool: {e}")
-        raise
-
-
-async def ensure_table_exists():
-    """Ensure the truck_groups table exists."""
-    pool = await init_pool()
     async with pool.acquire() as conn:
-        await conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS truck_groups (
+        # Create table if not exists
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS public.truck_groups (
                 unit TEXT PRIMARY KEY,
                 chat_id BIGINT NOT NULL UNIQUE,
                 title TEXT NOT NULL,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                driver_name TEXT,
+                phone_number TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
+
+        # Add missing columns (safe)
+        await conn.execute("""
+            ALTER TABLE truck_groups
+            ADD COLUMN IF NOT EXISTS driver_name TEXT;
+        """)
+
+        await conn.execute("""
+            ALTER TABLE truck_groups
+            ADD COLUMN IF NOT EXISTS phone_number TEXT;
+        """)
+
+        await conn.execute("""
+            ALTER TABLE truck_groups
+            ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+        """)
+
+    logger.info("🟢 DB migrations OK — truck_groups ready.")
+
+
+# ============================================================
+# UPSERT MAPPING
+# ============================================================
+async def upsert_mapping(
+    unit: Optional[str],
+    chat_id: int,
+    title: str,
+    driver_name: Optional[str] = None,
+    phone_number: Optional[str] = None,
+):
+    """
+    Insert or update truck-group mapping.
+
+    Rules:
+        - unit is PRIMARY KEY
+        - updates chat_id + title ALWAYS
+        - driver_name/phone update only if provided
+        - updated_at ALWAYS refreshed
+        - never deletes groups automatically
+    """
+    if not chat_id:
+        logger.warning("⚠️ upsert_mapping called with empty chat_id!")
+        return
+
+    await ensure_table()
+    pool = await get_pool()
+
+    unit_val = unit or f"CHAT_{chat_id}"
+
+    async with pool.acquire() as conn:
+        try:
+            await conn.execute(
+                """
+                INSERT INTO truck_groups
+                    (unit, chat_id, title, driver_name, phone_number, updated_at)
+                VALUES ($1, $2, $3, $4, $5, NOW())
+                ON CONFLICT (unit) DO UPDATE SET
+                    chat_id = EXCLUDED.chat_id,
+                    title = EXCLUDED.title,
+                    driver_name = COALESCE(EXCLUDED.driver_name, truck_groups.driver_name),
+                    phone_number = COALESCE(EXCLUDED.phone_number, truck_groups.phone_number),
+                    updated_at = NOW();
+                """,
+                unit_val, chat_id, title, driver_name, phone_number
             )
-            """
-        )
-    logger.info("✅ Verified truck_groups table.")
 
+            logger.info(
+                f"🔄 UPSERT OK — {unit_val} → chat {chat_id} | driver={driver_name}, phone={phone_number}"
+            )
 
-# ----------------------------------------------------------------
-# CORE CRUD
-# ----------------------------------------------------------------
-async def upsert_mapping(unit: Optional[str], chat_id: int, title: str):
-    """Insert or update mapping between a truck unit and Telegram group."""
-    if not chat_id:
-        logger.warning("⚠️ upsert_mapping called without chat_id — skipped.")
-        return
-
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        try:
-            unit_value = unit or f"CHAT_{chat_id}"
-            query = """
-            INSERT INTO public.truck_groups (unit, chat_id, title)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (unit) DO UPDATE
-            SET chat_id = EXCLUDED.chat_id,
-                title = EXCLUDED.title,
-                created_at = NOW();
-            """
-            await conn.execute(query, unit_value, chat_id, title)
-            logger.info(f"✅ Updated mapping: {unit_value} → {chat_id} ({title})")
         except Exception as e:
-            logger.error(f"💥 DB upsert failed for unit={unit}, chat={chat_id}: {e}")
+            logger.error(f"💥 UPSERT FAILED: {e}")
 
 
-async def unlink_chat(chat_id: int):
-    """Remove mapping for a chat when bot is removed or kicked (safe, manual only)."""
-    if not chat_id:
-        return
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        try:
-            result = await conn.execute("DELETE FROM public.truck_groups WHERE chat_id = $1", chat_id)
-            if result and "DELETE" in result:
-                logger.info(f"🗑️ Unlinked chat {chat_id} from DB.")
-            else:
-                logger.warning(f"⚠️ No mapping found to unlink for chat {chat_id}.")
-        except Exception as e:
-            logger.error(f"💥 Failed to unlink chat {chat_id}: {e}")
-
-
+# ============================================================
+# READ HELPERS
+# ============================================================
 async def get_truck_group(unit: str) -> Optional[Dict[str, Any]]:
-    """Fetch a single truck group mapping by unit."""
-    pool = await init_pool()
-    async with pool.acquire() as conn:
-        try:
-            row = await conn.fetchrow("SELECT * FROM truck_groups WHERE unit = $1", unit)
-            return dict(row) if row else None
-        except Exception as e:
-            logger.error(f"⚠️ Error fetching truck group {unit}: {e}")
-    return None
+    """Return full record for given truck unit."""
+    if not unit:
+        return None
 
-
-async def list_all_groups() -> List[Dict[str, Any]]:
-    """List all known truck-group mappings."""
+    await ensure_table()
     pool = await get_pool()
-    query = "SELECT unit, chat_id, title, created_at FROM public.truck_groups ORDER BY created_at DESC"
+
     async with pool.acquire() as conn:
-        try:
-            rows = await conn.fetch(query)
-            return [dict(r) for r in rows]
-        except Exception as e:
-            logger.error(f"💥 Failed to list groups: {e}")
-            return []
+        row = await conn.fetchrow("SELECT * FROM truck_groups WHERE unit=$1", unit)
+        return dict(row) if row else None
+
+
+async def get_group_by_chat(chat_id: int) -> Optional[Dict[str, Any]]:
+    """Return record by Telegram chat_id."""
+    await ensure_table()
+    pool = await get_pool()
+
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM truck_groups WHERE chat_id=$1", chat_id)
+        return dict(row) if row else None
 
 
 async def get_group_id_for_unit(unit: str) -> Optional[int]:
-    """Returns the Telegram chat_id for a given truck unit."""
-    if not unit:
-        return None
-    try:
-        pool = await init_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT chat_id FROM truck_groups WHERE unit = $1", unit)
-            if row:
-                chat_id = row["chat_id"]
-                logger.info(f"🎯 Found group for unit {unit}: {chat_id}")
-                return chat_id
-            else:
-                logger.warning(f"⚠️ No group found for unit {unit}")
-                return None
-    except Exception as e:
-        logger.error(f"💥 DB lookup failed for {unit}: {e}")
-        return None
+    """Return chat_id for unit."""
+    rec = await get_truck_group(unit)
+    return rec["chat_id"] if rec else None
 
 
-# ----------------------------------------------------------------
-# SANITY CHECKER 🧠 (Read-Only)
-# ----------------------------------------------------------------
-async def verify_all_mappings():
-    """
-    Scan DB for duplicates, nulls, or inconsistencies.
-    Safe: does not delete or modify anything automatically.
-    """
+async def list_all_groups() -> List[Dict[str, Any]]:
+    """Return all groups sorted newest first."""
+    await ensure_table()
     pool = await get_pool()
-    report = {"total": 0, "duplicates": [], "null_units": [], "invalid_chats": []}
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT * FROM truck_groups
+            ORDER BY updated_at DESC;
+        """)
+        return [dict(r) for r in rows]
+
+
+# ============================================================
+# SAFETY — MANUAL REMOVE ONLY
+# ============================================================
+async def unlink_chat(chat_id: int):
+    """Manual unlink (never used automatically)."""
+    await ensure_table()
+    pool = await get_pool()
 
     async with pool.acquire() as conn:
         try:
-            rows = await conn.fetch("SELECT unit, chat_id, title FROM public.truck_groups")
-            report["total"] = len(rows)
-
-            seen_chats = {}
-            for row in rows:
-                unit, chat_id = row["unit"], row["chat_id"]
-
-                if not unit or unit.startswith("CHAT_"):
-                    report["null_units"].append(dict(row))
-                if chat_id in seen_chats:
-                    report["duplicates"].append((seen_chats[chat_id], unit))
-                else:
-                    seen_chats[chat_id] = unit
-
-            logger.info(
-                f"🧾 Sanity check done: total={report['total']}, "
-                f"duplicates={len(report['duplicates'])}, "
-                f"nulls={len(report['null_units'])}"
-            )
+            res = await conn.execute("DELETE FROM truck_groups WHERE chat_id=$1", chat_id)
+            logger.info(f"🗑️ Manual unlink → chat={chat_id} ({res})")
         except Exception as e:
-            logger.error(f"💥 verify_all_mappings failed: {e}")
-
-    return report
+            logger.error(f"❌ unlink_chat FAILED: {e}")
 
 
-# ----------------------------------------------------------------
-# SAFE STARTUP SCANNER 🚫 No Cleanup
-# ----------------------------------------------------------------
-async def verify_existing_groups(bot):
-    """
-    Scan and refresh all known groups on bot startup.
-    Does NOT delete or clean any records. Logs only.
-    """
-    await init_pool()
+# ============================================================
+# SANITY CHECK (read-only)
+# ============================================================
+async def verify_all_mappings():
+    """Check for duplicates or invalid mappings."""
+    await ensure_table()
     pool = await get_pool()
 
     async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT unit, chat_id, title FROM public.truck_groups")
-        logger.info(f"🔍 Checking {len(rows)} stored group mappings...")
+        rows = await conn.fetch("SELECT * FROM truck_groups")
 
-        verified, unreachable = 0, 0
+        report = {
+            "total": len(rows),
+            "empty_units": 0,
+            "missing_driver": 0,
+            "duplicates": 0,
+        }
 
-        for row in rows:
-            unit, chat_id, title = row["unit"], row["chat_id"], row["title"]
+        seen_units = set()
 
-            try:
-                chat = await bot.get_chat(chat_id)
-                if chat and chat.title != title:
-                    await conn.execute(
-                        "UPDATE public.truck_groups SET title=$1 WHERE chat_id=$2",
-                        chat.title, chat_id
-                    )
-                    logger.info(f"🔁 Updated title for {unit} → {chat.title}")
-                verified += 1
-            except Exception as e:
-                logger.warning(f"⚠️ Unreachable group ({chat_id}, {title}): {e}")
-                unreachable += 1
+        for r in rows:
+            if not r["unit"] or r["unit"].startswith("CHAT_"):
+                report["empty_units"] += 1
 
-        logger.info(f"✅ Group scan done — Verified={verified}, Unreachable={unreachable}")
+            if not r["driver_name"]:
+                report["missing_driver"] += 1
+
+            if r["unit"] in seen_units:
+                report["duplicates"] += 1
+            else:
+                seen_units.add(r["unit"])
+
+        logger.info(f"🧠 Mapping Sanity Check → {report}")
+        return report
 
 
-# ----------------------------------------------------------------
+# ============================================================
 # CLOSE POOL
-# ----------------------------------------------------------------
+# ============================================================
 async def close_pool():
-    """Close database pool."""
-    global _pool
-    if _pool:
-        await _pool.close()
-        _pool = None
-        logger.info("🟡 Database pool closed.")
-
-
-# ----------------------------------------------------------------
-# SYNC HELPER
-# ----------------------------------------------------------------
-def sync_upsert(unit: str, chat_id: int, title: str):
-    """Sync helper to add mappings manually."""
-    asyncio.run(upsert_mapping(unit, chat_id, title))
+    pool = await get_pool()
+    try:
+        await pool.close()
+        logger.info("🟡 DB pool closed safely.")
+    except Exception as e:
+        logger.error(f"❌ db close failed: {e}")

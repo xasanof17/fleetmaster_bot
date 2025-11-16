@@ -9,3 +9,4 @@ google-auth
 asyncpg
 colorlog
 services
+emoji
