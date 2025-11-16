@@ -5,7 +5,7 @@ from aiogram.filters import Command
 from config.settings import settings
 from utils.logger import get_logger
 from services.group_map import list_all_groups, upsert_mapping
-from utils.parsers import parse_title   # <— we will create this helper below
+from utils.parsers import parse_title
 
 router = Router()
 logger = get_logger(__name__)
@@ -15,7 +15,6 @@ ADMINS = set(settings.ADMINS or [])
 
 @router.message(Command("refresh_all_groups"))
 async def refresh_all_groups(msg: Message):
-    """Full refresh: fetch latest group titles, re-parse unit/driver/phone."""
     if msg.from_user.id not in ADMINS:
         return
 
@@ -30,12 +29,10 @@ async def refresh_all_groups(msg: Message):
 
     for rec in groups:
         chat_id = rec["chat_id"]
-
         try:
             chat = await msg.bot.get_chat(chat_id)
             title = (chat.title or "").strip()
 
-            # Parse unit, driver, phone
             parsed = parse_title(title)
 
             await upsert_mapping(
@@ -43,7 +40,7 @@ async def refresh_all_groups(msg: Message):
                 chat_id,
                 title,
                 parsed["driver"],
-                parsed["phone"]
+                parsed["phone"],
             )
 
             updated += 1
