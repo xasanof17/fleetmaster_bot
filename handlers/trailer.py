@@ -6,10 +6,11 @@ from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from config.settings import settings
 from keyboards.trailer import trailer_file_kb, trailer_menu_kb
-from utils.parsers import _normalize
+
 # IMPORT TRAILER SERVICE
 from services.google_service import google_trailer_service
 from utils.logger import get_logger
+from utils.parsers import _normalize
 
 router = Router()
 logger = get_logger(__name__)
@@ -116,23 +117,24 @@ async def trailer_fullinfo(cb: CallbackQuery):
     await cb.answer()
     USER_TRAILER_MODE[cb.from_user.id] = "info"
     await cb.message.answer(
-        "ℹ️ **FULL INFORMATION MODE**\nSend trailer number: (example: H00530, A1001, A1034)",
+        "ℹ️ **FULL INFORMATION MODE**\nSend trailer number: (example: A1001)",
         parse_mode="Markdown",
     )
 
 
 # ==============================================================
 
+
 @router.message(F.text)
 async def unit_handler(msg: Message):
     unit_raw = msg.text.strip().upper()
 
-    # ignore long texts / paragraphs
-    if len(unit_raw) > 25:
+    # ignore long texts / spam
+    if len(unit_raw) > 40:
         return
 
-    # normalize trailer number fully (slashes, spaces, symbols)
-    unit = _normalize(unit_raw)
+    # normalized key
+    unit_key = _normalize(unit_raw)
 
     user = msg.from_user.id
     mode = USER_TRAILER_MODE.get(user)
@@ -141,11 +143,11 @@ async def unit_handler(msg: Message):
         await msg.answer("❌ Choose a section from the trailer menu first.")
         return
 
-    # =======================
-    #        REG MODE
-    # =======================
+    # =====================================================
+    # REGISTRATION PDF MODE
+    # =====================================================
     if mode == "reg":
-        pdf = find_pdf(REG_DIR, unit)
+        pdf = find_pdf(REG_DIR, unit_key)
         if not pdf:
             await msg.answer("❌ Registration PDF not found.")
             return
@@ -156,11 +158,11 @@ async def unit_handler(msg: Message):
         )
         return
 
-    # =======================
-    #      INSPECTION MODE
-    # =======================
+    # =====================================================
+    # INSPECTION PDF MODE
+    # =====================================================
     if mode == "insp":
-        pdf = find_pdf(INSP_DIR, unit)
+        pdf = find_pdf(INSP_DIR, unit_key)
         if not pdf:
             await msg.answer("❌ Inspection PDF not found.")
             return
@@ -171,24 +173,50 @@ async def unit_handler(msg: Message):
         )
         return
 
-    # =======================
-    #     FULL INFO
-    # =======================
+    # =====================================================
+    # FULL INFORMATION MODE (with fuzzy search)
+    # =====================================================
     if mode == "info":
-        info = await google_trailer_service.build_trailer_template(unit_raw)
+        # load the trailer dict once
+        trailers = await google_trailer_service.load_all_trailers()
 
-        if not info:
-            await msg.answer("❌ Trailer not found.")
+        # ---------- 1. EXACT / NORMALIZED MATCH ----------
+        info = await google_trailer_service.build_trailer_template(unit_raw)
+        if info:
+            pdf_reg = find_pdf(REG_DIR, unit_key)
+            pdf_insp = find_pdf(INSP_DIR, unit_key)
+
+            await msg.answer(
+                info,
+                parse_mode="Markdown",
+                reply_markup=trailer_file_kb(unit_raw) if (pdf_reg or pdf_insp) else None,
+            )
             return
 
-        pdf_reg = find_pdf(REG_DIR, unit)
-        pdf_insp = find_pdf(INSP_DIR, unit)
+        # ---------- 2. FUZZY BEST MATCH ----------
+        best = google_trailer_service.fuzzy_best_match(unit_raw, trailers)
+        if best:
+            info = await google_trailer_service.build_trailer_template(best)
 
-        await msg.answer(
-            info,
-            parse_mode="Markdown",
-            reply_markup=trailer_file_kb(unit_raw) if (pdf_reg or pdf_insp) else None,
-        )
+            pdf_reg = find_pdf(REG_DIR, _normalize(best))
+            pdf_insp = find_pdf(INSP_DIR, _normalize(best))
+
+            await msg.answer(
+                f"🔎 *Closest match:* `{best}`\n\n" + info,
+                parse_mode="Markdown",
+                reply_markup=trailer_file_kb(best) if (pdf_reg or pdf_insp) else None,
+            )
+            return
+
+        # ---------- 3. AUTOCOMPLETE / SUGGESTIONS ----------
+        suggestions = google_trailer_service.fuzzy_suggestions(unit_raw, trailers)
+        if suggestions:
+            listing = "\n".join(f"• `{s}`" for s in suggestions)
+            await msg.answer(f"🤔 *Did you mean:*\n\n{listing}", parse_mode="Markdown")
+            return
+
+        # ---------- 4. NOTHING MATCHED ----------
+        await msg.answer("❌ No matching trailers found.")
 
 
 # ==============================================================
