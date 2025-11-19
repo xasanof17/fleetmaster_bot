@@ -1,6 +1,7 @@
 # keyboards/pm_trucker.py (FIXED WITH PROPER PAGINATION)
-from typing import List, Dict, Any, Optional
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from typing import Any
+
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
@@ -21,24 +22,26 @@ def get_back_to_pm_keyboard() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def get_vehicles_list_keyboard(vehicles: List[Dict[str, Any]], page: int = 1, per_page: int = 10) -> InlineKeyboardMarkup:
+def get_vehicles_list_keyboard(
+    vehicles: list[dict[str, Any]], page: int = 1, per_page: int = 10
+) -> InlineKeyboardMarkup:
     """
     FIXED: Proper pagination with 10 vehicles per page
     """
     b = InlineKeyboardBuilder()
-    
+
     # Calculate pagination
     start = (page - 1) * per_page
     end = start + per_page
     page_items = vehicles[start:end]
     total_pages = (len(vehicles) + per_page - 1) // per_page
-    
+
     # Add vehicle buttons
     for v in page_items:
         vid = v.get("id", "")
         name = v.get("name", "Unknown")
         plate = v.get("licensePlate", "No plate")
-        
+
         # Create button text
         text = f"{name} ({plate})"
         b.add(InlineKeyboardButton(text=text[:50], callback_data=f"pm_vehicle_details:{vid}"))
@@ -47,11 +50,19 @@ def get_vehicles_list_keyboard(vehicles: List[Dict[str, Any]], page: int = 1, pe
     if total_pages > 1:
         row = []
         if page > 1:
-            row.append(InlineKeyboardButton(text="⬅️ Previous", callback_data=f"pm_vehicles_page:{page-1}"))
-        row.append(InlineKeyboardButton(text=f"📄 {page}/{total_pages}", callback_data="pm_page_info"))
+            row.append(
+                InlineKeyboardButton(
+                    text="⬅️ Previous", callback_data=f"pm_vehicles_page:{page - 1}"
+                )
+            )
+        row.append(
+            InlineKeyboardButton(text=f"📄 {page}/{total_pages}", callback_data="pm_page_info")
+        )
         if page < total_pages:
-            row.append(InlineKeyboardButton(text="Next ➡️", callback_data=f"pm_vehicles_page:{page+1}"))
-        
+            row.append(
+                InlineKeyboardButton(text="Next ➡️", callback_data=f"pm_vehicles_page:{page + 1}")
+            )
+
         # Add all vehicle buttons first, then pagination row
         b.adjust(*([1] * len(page_items)))
         for btn in row:
@@ -61,15 +72,25 @@ def get_vehicles_list_keyboard(vehicles: List[Dict[str, Any]], page: int = 1, pe
 
     # Add back button
     b.add(InlineKeyboardButton(text="🔙 Back to TRUCK INFORMATION", callback_data="pm_trucker"))
-    
+
     return b.as_markup()
 
 
-def get_vehicle_details_keyboard(vehicle_id: str, vehicle_name: Optional[str] = None) -> InlineKeyboardMarkup:
+def get_vehicle_details_keyboard(
+    vehicle_id: str, vehicle_name: str | None = None
+) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.add(InlineKeyboardButton(text="📍 Current Location", callback_data=f"pm_vehicle_location:{vehicle_id}"))
+    b.add(
+        InlineKeyboardButton(
+            text="📍 Current Location", callback_data=f"pm_vehicle_location:{vehicle_id}"
+        )
+    )
     safe_name = (vehicle_name or "").replace(":", "_").replace("|", "_")[:40]
-    b.add(InlineKeyboardButton(text="📄 Driver Information", callback_data=f"pm_vehicle_reg:{safe_name or 'unknown'}"))
+    b.add(
+        InlineKeyboardButton(
+            text="📄 Driver Information", callback_data=f"pm_vehicle_reg:{safe_name or 'unknown'}"
+        )
+    )
     b.add(InlineKeyboardButton(text="🔄 Refresh", callback_data=f"pm_vehicle_details:{vehicle_id}"))
     b.add(InlineKeyboardButton(text="🔙 Back to Vehicles", callback_data="pm_view_all_vehicles"))
     b.add(InlineKeyboardButton(text="🏠 Main Menu", callback_data="main_menu"))
@@ -89,11 +110,11 @@ def get_search_options_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_search_results_keyboard(
-    results: List[Dict[str, Any]], 
-    search_query: str, 
-    search_type: str, 
-    page: int = 1, 
-    per_page: int = 10
+    results: list[dict[str, Any]],
+    search_query: str,
+    search_type: str,
+    page: int = 1,
+    per_page: int = 10,
 ) -> InlineKeyboardMarkup:
     """
     Keyboard for search results with pagination

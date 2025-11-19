@@ -1,6 +1,7 @@
 import json
 from datetime import datetime
 from pathlib import Path
+
 import pytz
 
 LOG_FILE = Path("logs/location_requests.json")
@@ -17,7 +18,7 @@ def log_location_request(user_id: int, vehicle_id: str, location_type: str, addr
         entry = {
             "user_id": user_id,
             "vehicle_id": vehicle_id,
-            "location_type": location_type,   # "static" or "live"
+            "location_type": location_type,  # "static" or "live"
             "address": address or "N/A",
             "timestamp": ts,
         }

@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-from typing import Tuple, Optional
 
 INDEX_FILE = Path("logs/reg_index.json")
 INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -37,16 +36,14 @@ def index_file(file_name: str, file_id: str, message_id: int) -> None:
     _save_index(data)
 
 
-def find_latest_for_vehicle(vehicle_key: str) -> Optional[Tuple[str, str]]:
+def find_latest_for_vehicle(vehicle_key: str) -> tuple[str, str] | None:
     """
     Find the latest indexed file that starts with the given vehicle_key.
     Returns: (file_id, file_name) or None
     """
     data = _load_index()
     matches = [
-        (fname, meta)
-        for fname, meta in data.items()
-        if fname.startswith(vehicle_key.lower())
+        (fname, meta) for fname, meta in data.items() if fname.startswith(vehicle_key.lower())
     ]
     if not matches:
         return None

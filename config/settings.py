@@ -1,22 +1,24 @@
 """
 Configuration settings for FleetMaster Bot
 """
+
+import json
 import os
 import re
-import json
-from typing import List, Dict, Any, Optional
+from typing import Any
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
-def _bool(v: Optional[str], default: bool = False) -> bool:
+def _bool(v: str | None, default: bool = False) -> bool:
     if v is None:
         return default
     return str(v).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def _json(v: Optional[str], default):
+def _json(v: str | None, default):
     if not v:
         return default
     try:
@@ -35,7 +37,7 @@ class Settings:
 
     # Accept ADMINS=1553271433,1291874110  (no brackets)
     _admins_raw = os.getenv("ADMINS") or os.getenv("ADMIN", "")
-    ADMINS: List[int] = [int(x) for x in re.findall(r"\d+", _admins_raw)]
+    ADMINS: list[int] = [int(x) for x in re.findall(r"\d+", _admins_raw)]
 
     ALLOW_GROUPS: bool = _bool(os.getenv("ALLOW_GROUPS", "false"))
     BOT_PASSWORD: str = os.getenv("BOT_PASSWORD", "")
@@ -44,7 +46,7 @@ class Settings:
     PORT: int = int(os.getenv("PORT", "8080"))
 
     # Google Sheets creds
-    GOOGLE_CREDS_JSON: Dict[str, Any] = _json(os.getenv("GOOGLE_CREDS_JSON", ""), {}) or {}
+    GOOGLE_CREDS_JSON: dict[str, Any] = _json(os.getenv("GOOGLE_CREDS_JSON", ""), {}) or {}
 
     OPS_SPREADSHEET_NAME: str = os.getenv("OPS_SPREADSHEET_NAME", "OPERATION DEPARTMENT")
     OPS_WORKSHEET_NAME: str = os.getenv("OPS_WORKSHEET_NAME", "OPERATIONS")
@@ -55,7 +57,7 @@ class Settings:
 
     # Backward compatible key
     FILES_BASE: str = os.getenv("FILES_BASE", os.getenv("FILEBASE", "files"))
-    
+
     AUTO_CLEAN_GROUPS: bool = _bool(os.getenv("AUTO_CLEAN_GROUPS", "false"), False)
 
     try:

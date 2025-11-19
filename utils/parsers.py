@@ -1,6 +1,7 @@
 # utils/parsers.py
 
 import re
+
 import emoji
 
 # ─────────────────────────────────────────────
@@ -8,15 +9,11 @@ import emoji
 # ─────────────────────────────────────────────
 
 # Truck unit ALWAYS 3–5 digits, often first but not required
-UNIT_RE = re.compile(
-    r"\b(\d{3,5})\b"
-)
+UNIT_RE = re.compile(r"\b(\d{3,5})\b")
 
 # Ultra-flexible phone detection:
 # Accepts ANY mix that contains 7–20 digits total.
-PHONE_RE = re.compile(
-    r"(\+?\d[\d\s\-\.\(\)]{5,40}\d)"
-)
+PHONE_RE = re.compile(r"(\+?\d[\d\s\-\.\(\)]{5,40}\d)")
 
 # Driver name:
 # Supports African / Indian / English multi-part names
@@ -31,6 +28,7 @@ DRIVER_RE = re.compile(
 # ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────
+
 
 def _strip_emoji(text: str) -> str:
     """Remove emojis but keep text intact."""
@@ -74,6 +72,7 @@ def _format_us_phone(raw: str | None) -> str | None:
 # ─────────────────────────────────────────────
 # CORE PARSER
 # ─────────────────────────────────────────────
+
 
 def parse_title(title: str) -> dict:
     """
@@ -136,5 +135,5 @@ def parse_title(title: str) -> dict:
         "phone": phone,
         "raw_title": original,
         "clean_title": cleaned,
-        "name_source": tmp,      # Useful for debugging name detection
+        "name_source": tmp,  # Useful for debugging name detection
     }

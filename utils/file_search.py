@@ -1,5 +1,4 @@
 import os
-from typing import Optional
 
 FILES_BASE = "files"
 
@@ -11,7 +10,7 @@ DOC_FOLDERS = {
 }
 
 
-def find_truck_document(truck_number: str, doc_type: str) -> Optional[str]:
+def find_truck_document(truck_number: str, doc_type: str) -> str | None:
     """
     Find the first document file in the given doc_type folder
     that starts with the given truck_number.

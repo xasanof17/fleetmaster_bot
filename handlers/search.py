@@ -4,16 +4,17 @@ Handles Truck, PM Services, and Document searches
 Keeps all existing button callbacks intact
 """
 
-from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message, FSInputFile
+import os
+
+from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
-from keyboards.pm_trucker import get_vehicles_list_keyboard, get_back_to_pm_keyboard
-from services import samsara_service, google_pm_service
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import CallbackQuery, FSInputFile, Message
+from config import settings
+from keyboards.pm_trucker import get_back_to_pm_keyboard, get_vehicles_list_keyboard
+from services import google_pm_service, samsara_service
 from utils import format_pm_vehicle_info
 from utils.logger import get_logger
-from config import settings
-import os
 
 router = Router()
 logger = get_logger("unified.search")
@@ -48,7 +49,7 @@ async def start_vehicle_search(callback: CallbackQuery, state: FSMContext):
         f"{menu_name} Search Mode\n\n"
         "Please enter unit name or number to search.\n"
         "❌ Send /cancel to stop searching.",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
     )
     await callback.answer("Search started!")
 
@@ -71,7 +72,7 @@ async def start_doc_search(callback: CallbackQuery, state: FSMContext):
         f"📄 Document Search — *{doc_type.replace('_', ' ').title()}*\n\n"
         "Please enter the truck number or name.\n"
         "❌ Send /cancel to stop searching.",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
     )
     await callback.answer("Search started!")
 
@@ -120,7 +121,7 @@ async def handle_truck_search(msg: Message, query: str):
     await msg.answer(
         f"🎯 Found {len(results)} result(s) for `{query}`:",
         parse_mode="Markdown",
-        reply_markup=get_vehicles_list_keyboard(results, page=1, per_page=10)
+        reply_markup=get_vehicles_list_keyboard(results, page=1, per_page=10),
     )
 
 
@@ -156,7 +157,7 @@ async def handle_doc_search(msg: Message, query: str, doc_type: str):
             if query.lower() in filename.lower():
                 await msg.answer_document(
                     FSInputFile(os.path.join(folder_path, filename)),
-                    caption=f"📄 {doc_type.replace('_', ' ').title()} — Truck {query}"
+                    caption=f"📄 {doc_type.replace('_', ' ').title()} — Truck {query}",
                 )
                 return
         await msg.answer(f"❌ No document found for *{query}*.", parse_mode="Markdown")

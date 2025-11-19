@@ -20,11 +20,10 @@ This version:
     - Clean consistent API
 """
 
-import asyncpg
-from typing import Optional, Dict, Any, List
-from config.settings import settings
-from utils.logger import get_logger
+from typing import Any
+
 from config.db import get_pool
+from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -73,11 +72,11 @@ async def ensure_table():
 # UPSERT MAPPING
 # ============================================================
 async def upsert_mapping(
-    unit: Optional[str],
+    unit: str | None,
     chat_id: int,
     title: str,
-    driver_name: Optional[str] = None,
-    phone_number: Optional[str] = None,
+    driver_name: str | None = None,
+    phone_number: str | None = None,
 ):
     """
     Insert or update truck-group mapping.
@@ -112,7 +111,11 @@ async def upsert_mapping(
                     phone_number = COALESCE(EXCLUDED.phone_number, truck_groups.phone_number),
                     updated_at = NOW();
                 """,
-                unit_val, chat_id, title, driver_name, phone_number
+                unit_val,
+                chat_id,
+                title,
+                driver_name,
+                phone_number,
             )
 
             logger.info(
@@ -126,7 +129,7 @@ async def upsert_mapping(
 # ============================================================
 # READ HELPERS
 # ============================================================
-async def get_truck_group(unit: str) -> Optional[Dict[str, Any]]:
+async def get_truck_group(unit: str) -> dict[str, Any] | None:
     """Return full record for given truck unit."""
     if not unit:
         return None
@@ -139,7 +142,7 @@ async def get_truck_group(unit: str) -> Optional[Dict[str, Any]]:
         return dict(row) if row else None
 
 
-async def get_group_by_chat(chat_id: int) -> Optional[Dict[str, Any]]:
+async def get_group_by_chat(chat_id: int) -> dict[str, Any] | None:
     """Return record by Telegram chat_id."""
     await ensure_table()
     pool = await get_pool()
@@ -149,13 +152,13 @@ async def get_group_by_chat(chat_id: int) -> Optional[Dict[str, Any]]:
         return dict(row) if row else None
 
 
-async def get_group_id_for_unit(unit: str) -> Optional[int]:
+async def get_group_id_for_unit(unit: str) -> int | None:
     """Return chat_id for unit."""
     rec = await get_truck_group(unit)
     return rec["chat_id"] if rec else None
 
 
-async def list_all_groups() -> List[Dict[str, Any]]:
+async def list_all_groups() -> list[dict[str, Any]]:
     """Return all groups sorted newest first."""
     await ensure_table()
     pool = await get_pool()

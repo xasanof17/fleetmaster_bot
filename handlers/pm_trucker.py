@@ -1,38 +1,40 @@
 # handlers/pm_trucker.py (FIXED WITH PAGINATION)
 import asyncio
 import os
-from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message
+
+from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from services.samsara_service import samsara_service
-from services.google_ops_service import google_ops_service
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import CallbackQuery, Message
 from keyboards.pm_trucker import (
+    get_back_to_pm_keyboard,
     get_pm_trucker_menu,
-    get_vehicle_details_keyboard,
     get_search_options_keyboard,
+    get_vehicle_details_keyboard,
     get_vehicles_list_keyboard,
-    get_back_to_pm_keyboard
 )
+from services.google_ops_service import google_ops_service
+from services.samsara_service import samsara_service
 from utils.helpers import (
+    build_live_location_message,
+    build_static_location_message,
     format_vehicle_info,
     location_choice_keyboard,
-    build_static_location_message,
-    build_live_location_message,
 )
-from utils.logger_location import log_location_request
 from utils.logger import get_logger
+from utils.logger_location import log_location_request
 
 logger = get_logger(__name__)
 router = Router()
 LIVE_UPDATE_INTERVAL = 30
 FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "files", "registrations_2026")
 
+
 # FSM for search
 class VehicleSearchState(StatesGroup):
     waiting_for_query = State()
+
 
 # ────────────────────────────────────────
 # PM Trucker Main Menu
@@ -55,7 +57,9 @@ async def show_pm_trucker(callback: CallbackQuery):
     )
 
     try:
-        await callback.message.edit_text(text, reply_markup=get_pm_trucker_menu(), parse_mode="Markdown")
+        await callback.message.edit_text(
+            text, reply_markup=get_pm_trucker_menu(), parse_mode="Markdown"
+        )
     except Exception as e:
         logger.error(f"Error showing TRUCK INFORMATION menu: {e}")
         await callback.answer("❌ Error loading TRUCK INFORMATION")
@@ -64,7 +68,9 @@ async def show_pm_trucker(callback: CallbackQuery):
 # ────────────────────────────────────────
 # View All Vehicles (FIXED WITH PROPER PAGINATION)
 # ────────────────────────────────────────
-@router.callback_query(lambda c: c.data == "pm_view_all_vehicles" or c.data.startswith("pm_vehicles_page:"))
+@router.callback_query(
+    lambda c: c.data == "pm_view_all_vehicles" or c.data.startswith("pm_vehicles_page:")
+)
 async def show_all_vehicles(callback: CallbackQuery):
     """Show all vehicles with pagination - 10 per page"""
     # Parse page number
@@ -72,9 +78,9 @@ async def show_all_vehicles(callback: CallbackQuery):
         page = int(callback.data.split(":")[1])
     else:
         page = 1
-    
+
     await callback.answer("⚡ Loading vehicles...")
-    
+
     try:
         async with samsara_service as service:
             vehicles = await service.get_vehicles(use_cache=True)
@@ -91,15 +97,15 @@ async def show_all_vehicles(callback: CallbackQuery):
         per_page = 10
         total_vehicles = len(vehicles)
         total_pages = (total_vehicles + per_page - 1) // per_page
-        
+
         list_text = f"🚛 **Fleet Vehicles** (Page {page}/{total_pages})\n\n"
         list_text += f"Total vehicles: {total_vehicles}\n\n"
         list_text += "Select a vehicle to view details:"
-        
+
         await callback.message.edit_text(
-            text=list_text, 
-            reply_markup=get_vehicles_list_keyboard(vehicles, page=page, per_page=per_page), 
-            parse_mode="Markdown"
+            text=list_text,
+            reply_markup=get_vehicles_list_keyboard(vehicles, page=page, per_page=per_page),
+            parse_mode="Markdown",
         )
 
     except Exception as e:
@@ -157,9 +163,9 @@ async def show_vehicle_details(callback: CallbackQuery):
     except Exception as e:
         logger.error(f"Error showing vehicle details: {e}")
         await callback.message.edit_text(
-            "❌ **Error Loading Vehicle Details**", 
-            reply_markup=get_back_to_pm_keyboard(), 
-            parse_mode="Markdown"
+            "❌ **Error Loading Vehicle Details**",
+            reply_markup=get_back_to_pm_keyboard(),
+            parse_mode="Markdown",
         )
 
 
@@ -173,7 +179,9 @@ async def search_vehicle_menu(callback: CallbackQuery):
         "Choose how you want to search for vehicles:\n\n"
         "🏷️ **By Name**\n🔢 **By VIN**\n🚗 **By Plate**\n🔎 **All Fields**"
     )
-    await callback.message.edit_text(text, reply_markup=get_search_options_keyboard(), parse_mode="Markdown")
+    await callback.message.edit_text(
+        text, reply_markup=get_search_options_keyboard(), parse_mode="Markdown"
+    )
 
 
 @router.callback_query(lambda c: c.data.startswith("pm_search_by:"))
@@ -187,11 +195,11 @@ async def start_vehicle_search(callback: CallbackQuery, state: FSMContext):
         "name": "🏷️ **Search by Name**\nEnter vehicle name (or part):",
         "vin": "🔢 **Search by VIN**\nEnter VIN (or part):",
         "plate": "🚗 **Search by Plate**\nEnter plate (or part):",
-        "all": "🔎 **Search all fields**\nEnter text to search:"
+        "all": "🔎 **Search all fields**\nEnter text to search:",
     }
     text = prompts.get(search_type, "Enter search query:")
     text += "\n\n❌ Send /cancel to stop."
-    
+
     try:
         await callback.message.edit_text(text=text, parse_mode="Markdown")
         await callback.answer("🔍 Enter query")
@@ -207,7 +215,7 @@ async def process_vehicle_search(message: Message, state: FSMContext):
     if not query or len(query) < 2:
         await message.reply("Please enter at least 2 characters for search.")
         return
-    
+
     data = await state.get_data()
     search_type = data.get("search_type", "all")
     searching = await message.reply("🔍 Searching...")
@@ -215,27 +223,27 @@ async def process_vehicle_search(message: Message, state: FSMContext):
     try:
         async with samsara_service as svc:
             results = await svc.search_vehicles(query, search_type)
-        
+
         if not results:
             await searching.edit_text(
-                text=f"❌ No results for '{query}'", 
-                reply_markup=get_back_to_pm_keyboard(), 
-                parse_mode="Markdown"
+                text=f"❌ No results for '{query}'",
+                reply_markup=get_back_to_pm_keyboard(),
+                parse_mode="Markdown",
             )
         else:
             text = f"🎯 Found {len(results)} result(s) for '{query}':"
             await searching.edit_text(
-                text=text, 
-                reply_markup=get_vehicles_list_keyboard(results, page=1, per_page=10), 
-                parse_mode="Markdown"
+                text=text,
+                reply_markup=get_vehicles_list_keyboard(results, page=1, per_page=10),
+                parse_mode="Markdown",
             )
     except Exception as e:
         logger.error(f"Search error: {e}")
         try:
             await searching.edit_text(
-                text="❌ Search failed. Try again later.", 
-                reply_markup=get_back_to_pm_keyboard(), 
-                parse_mode="Markdown"
+                text="❌ Search failed. Try again later.",
+                reply_markup=get_back_to_pm_keyboard(),
+                parse_mode="Markdown",
             )
         except:
             await message.reply("❌ Search failed.")
@@ -246,9 +254,7 @@ async def cancel_vehicle_search(message: Message, state: FSMContext):
     """Cancel vehicle search"""
     await state.clear()
     await message.reply(
-        "❌ Search cancelled", 
-        reply_markup=get_back_to_pm_keyboard(), 
-        parse_mode="Markdown"
+        "❌ Search cancelled", reply_markup=get_back_to_pm_keyboard(), parse_mode="Markdown"
     )
 
 
@@ -285,7 +291,7 @@ async def show_location_choice(callback: CallbackQuery):
         "🗺 **Static** - One-time location\n"
         "📡 **Live** - Updates every 30 seconds for 5 minutes",
         reply_markup=location_choice_keyboard(vehicle_id),
-        parse_mode="Markdown"
+        parse_mode="Markdown",
     )
     await callback.answer()
 
@@ -333,7 +339,9 @@ async def handle_live(callback: CallbackQuery):
             return
 
         lat, lon = location["latitude"], location["longitude"]
-        live_msg = await callback.message.answer_location(latitude=lat, longitude=lon, live_period=300)
+        live_msg = await callback.message.answer_location(
+            latitude=lat, longitude=lon, live_period=300
+        )
         msg, _ = build_live_location_message(vehicle, location)
         await callback.message.answer(msg, parse_mode="Markdown")
 
@@ -379,21 +387,29 @@ async def handle_registration_file(callback: CallbackQuery):
     try:
         if not os.path.exists(FILES_DIR):
             # await callback.message.answer(f"❌ Registration files directory not found.")
-            await callback.message.answer("COMING SOON: Driver Information feature is under development.")
+            await callback.message.answer(
+                "COMING SOON: Driver Information feature is under development."
+            )
             return
-            
+
         files = [f for f in os.listdir(FILES_DIR) if f.lower().endswith(".pdf")]
-        found = next((os.path.join(FILES_DIR, f) for f in files if vehicle_name.lower() in f.lower()), None)
+        found = next(
+            (os.path.join(FILES_DIR, f) for f in files if vehicle_name.lower() in f.lower()), None
+        )
 
         if not found:
             # await callback.message.answer(f"❌ No registration file found for **{vehicle_name}**.")
-            await callback.message.answer("COMING SOON: Driver Information feature is under development.")
+            await callback.message.answer(
+                "COMING SOON: Driver Information feature is under development."
+            )
             return
 
         # await callback.message.answer_document(
         #     document=FSInputFile(found), caption=f"📄 Registration File for {vehicle_name}"
         # )
-        await callback.message.answer("COMING SOON: Driver Information feature is under development.")
+        await callback.message.answer(
+            "COMING SOON: Driver Information feature is under development."
+        )
         # logger.info(f"Sent registration file {found}")
     except Exception as e:
         logger.error(f"Error sending registration file: {e}")

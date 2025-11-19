@@ -6,19 +6,23 @@ Rebuilds truck_groups DB table from log history.
 ✅ Auto-expands title column to TEXT (no truncation)
 """
 
-import sys, os, json, re, asyncio
+import asyncio
+import json
+import os
+import re
+import sys
+
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))  # make imports work
 
 from services.group_map import init_pool
-from utils.logger import setup_logging, get_logger
+from utils.logger import get_logger, setup_logging
 
 setup_logging()
 logger = get_logger("log_importer")
 
 # 🔍 Match messages like: Linked Truck 2054 → Chat -4860500008 (2054 - Mr. Azamat 🟢 ...)
 LINK_RE = re.compile(
-    r"Linked Truck\s+(\d{3,5})\s*→\s*Chat\s*(-?\d+)\s*\((.+)\)",
-    re.IGNORECASE | re.DOTALL
+    r"Linked Truck\s+(\d{3,5})\s*→\s*Chat\s*(-?\d+)\s*\((.+)\)", re.IGNORECASE | re.DOTALL
 )
 
 
@@ -50,7 +54,9 @@ async def insert_record(conn, unit: str, chat_id: int, title: str):
                 active = TRUE,
                 created_at = NOW();
             """,
-            unit, chat_id, title
+            unit,
+            chat_id,
+            title,
         )
         logger.info(f"✅ Inserted {unit} → {chat_id} ({title})")
     except Exception as e:
@@ -63,7 +69,7 @@ async def import_from_logs(file_path: str = "./scripts/logs.json"):
     imported, skipped = 0, 0
 
     # Load and decode file safely
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         logs = json.load(f)
 
     async with pool.acquire() as conn:

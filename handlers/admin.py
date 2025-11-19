@@ -1,5 +1,5 @@
 # handlers/admin.py
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.types import Message
 from config.settings import settings
 from services.group_map import upsert_mapping
@@ -9,9 +9,13 @@ router = Router()
 logger = get_logger(__name__)
 ADMINS = set(settings.ADMINS or [])
 
+
 @router.message(F.text == "/id")
 async def my_id(msg: Message):
-    await msg.answer(f"Your ID: {msg.from_user.id}\nADMINS: {settings.ADMINS}\nYou're admin: {msg.from_user.id in ADMINS}")
+    await msg.answer(
+        f"Your ID: {msg.from_user.id}\nADMINS: {settings.ADMINS}\nYou're admin: {msg.from_user.id in ADMINS}"
+    )
+
 
 @router.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"^/link\s+(\d+)$"))
 async def link_group(msg: Message, regexp: dict):

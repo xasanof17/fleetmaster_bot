@@ -10,3 +10,4 @@ asyncpg
 colorlog
 services
 emoji
+ruff

@@ -2,17 +2,17 @@
 Bot initialization and lifecycle helpers for FleetMaster Bot
 Includes: create_bot, create_dispatcher, setup_bot_commands, on_startup, on_shutdown
 """
+
+
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
-from typing import Optional
 from config import settings
-from utils.logger import get_logger
-from services.samsara_service import samsara_service
 from middlewares.chat_guard import ChatGuardMiddleware
-from config import settings
+from services.samsara_service import samsara_service
+from utils.logger import get_logger
 
 logger = get_logger("core.bot")
 
@@ -33,11 +33,11 @@ def create_dispatcher() -> Dispatcher:
     logger.info("Creating Dispatcher")
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
-    
+
     # ✅ attach middleware before including routers
     dp.message.middleware(ChatGuardMiddleware())
     dp.callback_query.middleware(ChatGuardMiddleware())
-    
+
     # import routers (handlers/__init__.py exposes 'routers' list)
     try:
         from handlers import routers
@@ -66,7 +66,7 @@ async def setup_bot_commands(bot: Bot) -> None:
         logger.error(f"Failed to set bot commands: {e}")
 
 
-async def on_startup(bot: Bot, dispatcher: Optional[Dispatcher] = None) -> None:
+async def on_startup(bot: Bot, dispatcher: Dispatcher | None = None) -> None:
     logger.info("🚀 FleetMaster startup initiated.")
     logger.info(f"ADMINS loaded: {settings.ADMINS}")
 
@@ -91,11 +91,12 @@ async def on_startup(bot: Bot, dispatcher: Optional[Dispatcher] = None) -> None:
         logger.info(f"✅ Bot ready: @{getattr(me, 'username', 'unknown')}")
     except Exception as e:
         logger.error(f"Failed to get bot info on startup: {e}")
-        
+
+
 # ─────────────────────────────────────────────
 # SHUTDOWN HOOK
 # ─────────────────────────────────────────────
-async def on_shutdown(bot: Bot, dispatcher: Optional[Dispatcher] = None) -> None:
+async def on_shutdown(bot: Bot, dispatcher: Dispatcher | None = None) -> None:
     """Clean shutdown and resource cleanup."""
     logger.info("🛑 FleetMaster shutdown initiated...")
 

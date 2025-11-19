@@ -11,16 +11,14 @@ This version:
 """
 
 import asyncio
-import re
-import emoji
-from aiogram import Router, F
-from aiogram.enums import ChatType
-from aiogram.types import Message, ChatMemberUpdated
 
-from utils.parsers import parse_title
-from services.group_map import upsert_mapping, list_all_groups
-from utils.logger import get_logger
+from aiogram import F, Router
+from aiogram.enums import ChatType
+from aiogram.types import ChatMemberUpdated, Message
 from config.settings import settings
+from services.group_map import list_all_groups, upsert_mapping
+from utils.logger import get_logger
+from utils.parsers import parse_title
 
 router = Router()
 logger = get_logger(__name__)
@@ -34,6 +32,7 @@ BOT_TOKEN = settings.TELEGRAM_BOT_TOKEN
 # ============================================================
 async def notify_admins(text: str):
     from aiogram import Bot
+
     bot = Bot(BOT_TOKEN)
 
     for admin in ADMINS:
@@ -181,13 +180,7 @@ async def refresh_all_groups(msg: Message):
 
             parsed = parse_title(title)
 
-            await upsert_mapping(
-                parsed["unit"],
-                chat_id,
-                title,
-                parsed["driver"],
-                parsed["phone"]
-            )
+            await upsert_mapping(parsed["unit"], chat_id, title, parsed["driver"], parsed["phone"])
 
             updated += 1
 
@@ -195,8 +188,4 @@ async def refresh_all_groups(msg: Message):
             skipped += 1
             logger.warning(f"[MANUAL REFRESH] chat={chat_id} failed: {e}")
 
-    await msg.answer(
-        f"✅ Refresh finished!\n"
-        f"• Updated: {updated}\n"
-        f"• Skipped: {skipped}"
-    )
+    await msg.answer(f"✅ Refresh finished!\n• Updated: {updated}\n• Skipped: {skipped}")

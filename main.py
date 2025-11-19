@@ -1,7 +1,7 @@
 """
 FleetMaster Bot — Clean App Entrypoint
 Handles:
-  • DB init  
+  • DB init
   • Bot + Dispatcher creation
   • Startup middlewares
   • Optional background Samsara refresh
@@ -9,11 +9,12 @@ Handles:
 """
 
 import asyncio
-from core.bot import create_bot, create_dispatcher, on_startup, on_shutdown
-from utils.logger import setup_logging, get_logger
-from config.db import init_db
+
 from config import settings
+from config.db import init_db
+from core.bot import create_bot, create_dispatcher, on_shutdown, on_startup
 from services.samsara_service import samsara_service
+from utils.logger import get_logger, setup_logging
 
 logger = get_logger("main")
 

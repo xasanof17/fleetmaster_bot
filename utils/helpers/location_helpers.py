@@ -1,9 +1,12 @@
-from typing import Tuple, Dict, Any
-from .text_helpers import format_timestamp
+from typing import Any
+
 from .keyboard_helpers import after_location_keyboard
+from .text_helpers import format_timestamp
 
 
-def build_static_location_message(vehicle: Dict[str, Any], location: Dict[str, Any]) -> Tuple[str, object]:
+def build_static_location_message(
+    vehicle: dict[str, Any], location: dict[str, Any]
+) -> tuple[str, object]:
     address = location.get("address") or "Unknown location"
     ts = format_timestamp(location.get("time"))
     msg = f"""
@@ -15,7 +18,9 @@ def build_static_location_message(vehicle: Dict[str, Any], location: Dict[str, A
     return msg, kb
 
 
-def build_live_location_message(vehicle: Dict[str, Any], location: Dict[str, Any]) -> Tuple[str, object]:
+def build_live_location_message(
+    vehicle: dict[str, Any], location: dict[str, Any]
+) -> tuple[str, object]:
     address = location.get("address") or "Unknown location"
     ts = format_timestamp(location.get("time"))
     msg = f"""

@@ -7,12 +7,11 @@ Uses NEW V4 Parser logic (unit, driver, phone)
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
-
 from config.settings import settings
 from services.group_map import (
-    list_all_groups,
-    get_truck_group,
     get_group_by_chat,
+    get_truck_group,
+    list_all_groups,
 )
 from utils.logger import get_logger
 
@@ -39,10 +38,7 @@ async def cmd_groupinfo(msg: Message):
 
     args = msg.text.split()
     if len(args) < 2:
-        return await msg.answer(
-            "Usage:\n`/groupinfo <unit>`",
-            parse_mode="Markdown"
-        )
+        return await msg.answer("Usage:\n`/groupinfo <unit>`", parse_mode="Markdown")
 
     unit = args[1].strip()
     rec = await get_truck_group(unit)
@@ -114,9 +110,9 @@ async def cmd_find(msg: Message):
     results = []
     for g in groups:
         if (
-            keyword in (g.get("driver_name") or "").lower() or
-            keyword in (g.get("phone_number") or "").lower() or
-            keyword in (g.get("unit") or "").lower()
+            keyword in (g.get("driver_name") or "").lower()
+            or keyword in (g.get("phone_number") or "").lower()
+            or keyword in (g.get("unit") or "").lower()
         ):
             results.append(g)
 
@@ -168,10 +164,7 @@ async def cmd_missed(msg: Message):
         return
 
     groups = await list_all_groups()
-    missing = [
-        g for g in groups
-        if not g.get("driver_name") or not g.get("phone_number")
-    ]
+    missing = [g for g in groups if not g.get("driver_name") or not g.get("phone_number")]
 
     if not missing:
         return await msg.answer("🎉 All groups have full driver + phone info!")

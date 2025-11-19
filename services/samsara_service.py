@@ -3,12 +3,13 @@ Samsara API service for FleetMaster Bot
 Centralised API logic, pagination, and background refresh loop.
 """
 
-import aiohttp
 import asyncio
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+import aiohttp
 from config import settings
-from utils.helpers import parse_series_value_and_time, meters_to_miles
+from utils.helpers import meters_to_miles, parse_series_value_and_time
 from utils.logger import get_logger
 
 logger = get_logger("services.samsara_service")
@@ -22,9 +23,9 @@ class SamsaraService:
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
-        self.session: Optional[aiohttp.ClientSession] = None
-        self._vehicle_cache: Optional[List[Dict[str, Any]]] = None
-        self._cache_timestamp: Optional[datetime] = None
+        self.session: aiohttp.ClientSession | None = None
+        self._vehicle_cache: list[dict[str, Any]] | None = None
+        self._cache_timestamp: datetime | None = None
         self._cache_duration = timedelta(minutes=3)
 
         # background refresh loop
@@ -37,7 +38,9 @@ class SamsaraService:
     async def __aenter__(self):
         connector = aiohttp.TCPConnector(limit=20, limit_per_host=10)
         timeout = aiohttp.ClientTimeout(total=10, connect=3, sock_read=5)
-        self.session = aiohttp.ClientSession(headers=self.headers, timeout=timeout, connector=connector)
+        self.session = aiohttp.ClientSession(
+            headers=self.headers, timeout=timeout, connector=connector
+        )
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -54,7 +57,7 @@ class SamsaraService:
             return False
         return datetime.utcnow() - self._cache_timestamp < self._cache_duration
 
-    def _cache_vehicles(self, vehicles: List[Dict[str, Any]]) -> None:
+    def _cache_vehicles(self, vehicles: list[dict[str, Any]]) -> None:
         self._vehicle_cache = vehicles
         self._cache_timestamp = datetime.utcnow()
         logger.info(f"🗃️ Cached {len(vehicles)} vehicles")
@@ -66,10 +69,10 @@ class SamsaraService:
         self,
         endpoint: str,
         method: str = "GET",
-        params: Optional[Dict[str, Any]] = None,
-        json: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
         max_retries: int = 2,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         if not self.session:
             logger.error("Session not initialized. Use 'async with samsara_service'.")
             return None
@@ -78,7 +81,7 @@ class SamsaraService:
 
         for attempt in range(max_retries + 1):
             try:
-                logger.debug(f"Request {method} {url} (attempt {attempt+1})")
+                logger.debug(f"Request {method} {url} (attempt {attempt + 1})")
                 async with self.session.request(method, url, params=params, json=json) as resp:
                     if resp.status == 200:
                         return await resp.json()
@@ -88,7 +91,7 @@ class SamsaraService:
                         return None
 
                     if resp.status == 429 and attempt < max_retries:
-                        wait = 2 ** attempt
+                        wait = 2**attempt
                         logger.warning(f"Rate limited; retrying in {wait}s")
                         await asyncio.sleep(wait)
                         continue
@@ -110,13 +113,13 @@ class SamsaraService:
     # -----------------------------
     # Vehicle Operations
     # -----------------------------
-    async def get_vehicles(self, use_cache: bool = True) -> List[Dict[str, Any]]:
+    async def get_vehicles(self, use_cache: bool = True) -> list[dict[str, Any]]:
         if use_cache and self._is_cache_valid() and self._vehicle_cache:
             logger.debug("Returning vehicles from cache")
             return self._vehicle_cache
 
         logger.info("Fetching vehicles (paginated)")
-        vehicles: List[Dict[str, Any]] = []
+        vehicles: list[dict[str, Any]] = []
         params = {"types": "light_duty,medium_duty,heavy_duty"}
         endpoint = "/fleet/vehicles"
         cursor = None
@@ -142,7 +145,7 @@ class SamsaraService:
         self._cache_vehicles(vehicles)
         return vehicles
 
-    async def get_vehicle_by_id(self, vehicle_id: str) -> Optional[Dict[str, Any]]:
+    async def get_vehicle_by_id(self, vehicle_id: str) -> dict[str, Any] | None:
         if self._is_cache_valid() and self._vehicle_cache:
             for v in self._vehicle_cache:
                 if str(v.get("id")) == str(vehicle_id):
@@ -158,13 +161,15 @@ class SamsaraService:
                 return v
         return None
 
-    async def get_vehicle_odometer_stats(self, vehicle_ids: Optional[List[str]] = None) -> Dict[str, Dict[str, Any]]:
+    async def get_vehicle_odometer_stats(
+        self, vehicle_ids: list[str] | None = None
+    ) -> dict[str, dict[str, Any]]:
         params = {"types": "obdOdometerMeters"}
         if vehicle_ids:
             params["vehicleIds"] = ",".join([str(x) for x in vehicle_ids][:50])
         result = await self._make_request("/fleet/vehicles/stats/feed", params=params)
 
-        data: Dict[str, Dict[str, Any]] = {}
+        data: dict[str, dict[str, Any]] = {}
         if not result or "data" not in result:
             logger.warning("No odometer data from API")
             return data
@@ -183,7 +188,7 @@ class SamsaraService:
             data[str(vid)] = {"vin": vin, "odometer": miles, "lastUpdated": ts}
         return data
 
-    async def get_vehicle_location(self, vehicle_id: str) -> Optional[Dict[str, Any]]:
+    async def get_vehicle_location(self, vehicle_id: str) -> dict[str, Any] | None:
         params = {"types": "gps", "vehicleIds": str(vehicle_id)}
         result = await self._make_request("/fleet/vehicles/stats/feed", params=params)
 
@@ -219,7 +224,9 @@ class SamsaraService:
     # -----------------------------
     # Vehicle Search & Detailed Info (ADDED)
     # -----------------------------
-    async def search_vehicles(self, query: str, search_by: str = "name", limit: int = 50) -> List[Dict[str, Any]]:
+    async def search_vehicles(
+        self, query: str, search_by: str = "name", limit: int = 50
+    ) -> list[dict[str, Any]]:
         """
         Search vehicles by name, VIN, or plate number using cached list.
         """
@@ -247,7 +254,7 @@ class SamsaraService:
         logger.info(f"🔍 Search '{query}' matched {len(results)} vehicles")
         return results
 
-    async def get_vehicle_with_stats(self, vehicle_id: str) -> Optional[Dict[str, Any]]:
+    async def get_vehicle_with_stats(self, vehicle_id: str) -> dict[str, Any] | None:
         """
         Return a vehicle with odometer + VIN + latest update timestamp.
         """
@@ -257,7 +264,9 @@ class SamsaraService:
             return None
 
         try:
-            odos = await asyncio.wait_for(self.get_vehicle_odometer_stats([vehicle_id]), timeout=6.0)
+            odos = await asyncio.wait_for(
+                self.get_vehicle_odometer_stats([vehicle_id]), timeout=6.0
+            )
             odo = odos.get(str(vehicle_id))
             if odo:
                 vehicle["odometer"] = odo.get("odometer")

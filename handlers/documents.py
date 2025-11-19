@@ -4,20 +4,21 @@ Document management and access — ADMIN-ONLY SEND TO GROUP (per truck, DB-mappe
 """
 
 import os
-from aiogram import Router, F
-from aiogram.types import CallbackQuery, FSInputFile, Message
+
+from aiogram import F, Router
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.filters import StateFilter
+from aiogram.types import CallbackQuery, FSInputFile, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from config import settings
 from keyboards.documents import (
     documents_menu_kb,
     get_documents_vehicle_keyboard,
     get_send_group_keyboard,
 )
-from services.samsara_service import samsara_service
 from services.group_map import get_group_id_for_unit
-from config import settings
+from services.samsara_service import samsara_service
 from utils.logger import get_logger
 
 # ─────────────────────────────────────────────
@@ -105,7 +106,7 @@ async def documents_flow(cb: CallbackQuery):
 
             kb = get_documents_vehicle_keyboard(vehicles, doc_type, page=page)
             await cb.message.edit_text(
-                f"🚛 *{doc_type.replace('_',' ').title()}*\n\nSelect a vehicle:",
+                f"🚛 *{doc_type.replace('_', ' ').title()}*\n\nSelect a vehicle:",
                 reply_markup=kb,
                 parse_mode="Markdown",
             )
@@ -138,7 +139,7 @@ async def send_document_file(cb: CallbackQuery, truck_number: str, doc_type: str
             )
             return
 
-        caption = f"📄 *Truck {truck_number}* — {doc_type.replace('_',' ').title()}"
+        caption = f"📄 *Truck {truck_number}* — {doc_type.replace('_', ' ').title()}"
         markup = get_send_group_keyboard(truck_number) if cb.from_user.id in ADMINS else None
 
         await cb.message.answer_document(
@@ -178,7 +179,7 @@ async def handle_send_group(cb: CallbackQuery):
                 caption = (
                     f"📎 *Shared from Bot*\n"
                     f"🚛 Truck: *{truck_unit}*\n"
-                    f"📄 {doc_type.replace('_',' ').title()}"
+                    f"📄 {doc_type.replace('_', ' ').title()}"
                 )
                 await cb.bot.send_document(
                     chat_id=int(group_id),
@@ -206,7 +207,7 @@ async def ask_truck_number(cb: CallbackQuery, state: FSMContext):
     _, doc_type = cb.data.split(":")
     await state.update_data(doc_type=doc_type)
     await cb.message.answer(
-        f"🔎 **Search {doc_type.replace('_',' ').title()}**\n\n"
+        f"🔎 **Search {doc_type.replace('_', ' ').title()}**\n\n"
         "Enter truck number (e.g. 5071):\n\n"
         "Send /cancel to stop.",
         parse_mode="Markdown",
@@ -225,10 +226,12 @@ async def search_truck_number(msg: Message, state: FSMContext):
     try:
         file_path = find_document(truck_number, doc_type)
         if not file_path:
-            await msg.answer(f"❌ No document found for *Truck {truck_number}*", parse_mode="Markdown")
+            await msg.answer(
+                f"❌ No document found for *Truck {truck_number}*", parse_mode="Markdown"
+            )
             return
 
-        caption = f"📄 **Truck {truck_number}** — {doc_type.replace('_',' ').title()}"
+        caption = f"📄 **Truck {truck_number}** — {doc_type.replace('_', ' ').title()}"
         markup = get_send_group_keyboard(truck_number) if msg.from_user.id in ADMINS else None
 
         await msg.answer_document(

@@ -1,15 +1,17 @@
 # middlewares/chat_guard.py
 from aiogram import BaseMiddleware
-from aiogram.types import Message, CallbackQuery, Chat
+from aiogram.types import CallbackQuery, Chat, Message
 from config.settings import settings
 from utils import get_logger
 
 logger = get_logger(__name__)
 
+
 class ChatGuardMiddleware(BaseMiddleware):
     """
     If ALLOW_GROUPS=False, silently ignores all group/supergroup events.
     """
+
     async def __call__(self, handler, event, data):
         chat_type = None
         chat: Chat | None = None

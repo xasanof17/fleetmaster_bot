@@ -1,14 +1,14 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 
-def safe_get(d: Dict[str, Any], key: str, default: Any = "N/A") -> Any:
+def safe_get(d: dict[str, Any], key: str, default: Any = "N/A") -> Any:
     """Return a value safely (works with nested externalIds if needed)."""
     if not d:
         return default
     return d.get(key, default)
 
 
-def parse_series_value_and_time(series: Any) -> Tuple[Optional[float], Optional[str]]:
+def parse_series_value_and_time(series: Any) -> tuple[float | None, str | None]:
     """Parse Samsara series to (value, time)."""
     if not series:
         return None, None
@@ -38,7 +38,7 @@ def meters_to_miles(meters: float) -> int:
     return int(round(float(meters) / 1609.34))
 
 
-def extract_odometer_miles(vehicle: Dict[str, Any]) -> Optional[int]:
+def extract_odometer_miles(vehicle: dict[str, Any]) -> int | None:
     """Extract odometer in miles from vehicle payload."""
     dotted_key = vehicle.get("obdOdometerMeters.value")
     if isinstance(dotted_key, (int, float)):

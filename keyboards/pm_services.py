@@ -1,11 +1,13 @@
-from typing import List, Dict, Any
-from datetime import datetime, timedelta
 import calendar
+from datetime import datetime, timedelta
+from typing import Any
+
 import pytz
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 tz = pytz.timezone("Asia/Tashkent")
+
 
 # =======================================
 # MAIN PM MENU
@@ -35,14 +37,14 @@ def get_pm_search_keyboard() -> InlineKeyboardMarkup:
 # PAGINATED VEHICLE LIST
 # =======================================
 def get_pm_vehicles_keyboard(
-    vehicles: List[Dict[str, Any]],
+    vehicles: list[dict[str, Any]],
     page: int = 1,
     per_page: int = 10,
     back_callback: str = "pm_services",
 ) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     start = (page - 1) * per_page
-    items = vehicles[start:start + per_page]
+    items = vehicles[start : start + per_page]
     total_pages = (len(vehicles) + per_page - 1) // per_page
 
     for v in items:
@@ -52,10 +54,10 @@ def get_pm_vehicles_keyboard(
     if total_pages > 1:
         row = []
         if page > 1:
-            row.append(InlineKeyboardButton(text="⬅️ Prev", callback_data=f"pm_all:{page-1}"))
+            row.append(InlineKeyboardButton(text="⬅️ Prev", callback_data=f"pm_all:{page - 1}"))
         row.append(InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="pm_page_info"))
         if page < total_pages:
-            row.append(InlineKeyboardButton(text="Next ➡️", callback_data=f"pm_all:{page+1}"))
+            row.append(InlineKeyboardButton(text="Next ➡️", callback_data=f"pm_all:{page + 1}"))
         b.row(*row)
 
     b.row(InlineKeyboardButton(text="🔙 Back to PM Services", callback_data=back_callback))
@@ -72,9 +74,13 @@ def get_pm_vehicle_details_keyboard(
     chat_type: str = "private",
 ) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.add(InlineKeyboardButton(text="🔄 Refresh", callback_data=f"pm_sheet_vehicle:{truck_id}:{page}"))
+    b.add(
+        InlineKeyboardButton(text="🔄 Refresh", callback_data=f"pm_sheet_vehicle:{truck_id}:{page}")
+    )
     if is_admin and chat_type == "private":
-        b.add(InlineKeyboardButton(text="📤 Send to Group", callback_data=f"pm_send_group:{truck_id}"))
+        b.add(
+            InlineKeyboardButton(text="📤 Send to Group", callback_data=f"pm_send_group:{truck_id}")
+        )
     b.add(InlineKeyboardButton(text="🔙 Back to Vehicle List", callback_data=f"pm_all:{page}"))
     b.add(InlineKeyboardButton(text="🏠 Main Menu", callback_data="main_menu"))
     b.adjust(1)
@@ -92,12 +98,16 @@ def urgent_oil_list_keyboard(
     b = InlineKeyboardBuilder()
     if is_admin and chat_type == "private":
         b.row(
-            InlineKeyboardButton(text="📤 Send List to Each Group", callback_data=f"pm_send_list:{list_type}"),
-            InlineKeyboardButton(text="⏰ Schedule Timer", callback_data=f"pm_timer_start:{list_type}"),
+            InlineKeyboardButton(
+                text="📤 Send List to Each Group", callback_data=f"pm_send_list:{list_type}"
+            ),
+            InlineKeyboardButton(
+                text="⏰ Schedule Timer", callback_data=f"pm_timer_start:{list_type}"
+            ),
         )
         b.row(
             InlineKeyboardButton(text="🕐 View Timers", callback_data="pm_timer_view"),
-            InlineKeyboardButton(text="🛑 Stop Timers", callback_data=f"pm_timer_stop:{list_type}")
+            InlineKeyboardButton(text="🛑 Stop Timers", callback_data=f"pm_timer_stop:{list_type}"),
         )
     b.row(InlineKeyboardButton(text="🔙 Back to PM Menu", callback_data="pm_services"))
     b.adjust(1)
@@ -133,18 +143,25 @@ def get_calendar_keyboard(year=None, month=None) -> InlineKeyboardMarkup:
                 row.append(InlineKeyboardButton(text=" ", callback_data="noop"))
             else:
                 date_str = f"{year}-{month:02d}-{day:02d}"
-                row.append(InlineKeyboardButton(text=str(day), callback_data=f"pick_date:{date_str}"))
+                row.append(
+                    InlineKeyboardButton(text=str(day), callback_data=f"pick_date:{date_str}")
+                )
         b.row(*row)
 
     # Navigation buttons
     prev_month = (datetime(year, month, 15) - timedelta(days=31)).replace(day=1)
     next_month = (datetime(year, month, 15) + timedelta(days=31)).replace(day=1)
     b.row(
-        InlineKeyboardButton(text="⬅️ Prev", callback_data=f"cal_prev:{prev_month.year}:{prev_month.month}"),
-        InlineKeyboardButton(text="➡️ Next", callback_data=f"cal_next:{next_month.year}:{next_month.month}")
+        InlineKeyboardButton(
+            text="⬅️ Prev", callback_data=f"cal_prev:{prev_month.year}:{prev_month.month}"
+        ),
+        InlineKeyboardButton(
+            text="➡️ Next", callback_data=f"cal_next:{next_month.year}:{next_month.month}"
+        ),
     )
 
     return b.as_markup()
+
 
 # =======================================
 # INLINE MINUTE PICKER (new)
@@ -159,8 +176,11 @@ def get_minute_picker_keyboard(selected_hour: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="30", callback_data=f"pick_time:{selected_hour}:30"),
         InlineKeyboardButton(text="45", callback_data=f"pick_time:{selected_hour}:45"),
     )
-    b.row(InlineKeyboardButton(text="✏️ Custom Minute", callback_data=f"custom_minute:{selected_hour}"))
+    b.row(
+        InlineKeyboardButton(text="✏️ Custom Minute", callback_data=f"custom_minute:{selected_hour}")
+    )
     return b.as_markup()
+
 
 # =======================================
 # INLINE TIME PICKER (hours + custom)
@@ -175,7 +195,9 @@ def get_time_picker_keyboard(mode: str = "hour") -> InlineKeyboardMarkup:
             for i in range(4):
                 val = h + i
                 if val < 24:
-                    row.append(InlineKeyboardButton(text=f"{val:02d}:00", callback_data=f"pick_hour:{val}"))
+                    row.append(
+                        InlineKeyboardButton(text=f"{val:02d}:00", callback_data=f"pick_hour:{val}")
+                    )
             b.row(*row)
         b.row(InlineKeyboardButton(text="✏️ Enter Custom Hour (HH:MM)", callback_data="custom_hour"))
 

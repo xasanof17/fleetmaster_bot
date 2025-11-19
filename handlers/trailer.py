@@ -1,11 +1,11 @@
 import os
 import re
-from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message, FSInputFile
 
+from aiogram import F, Router
+from aiogram.types import CallbackQuery, FSInputFile, Message
 from config.settings import settings
+from keyboards.trailer import trailer_file_kb, trailer_menu_kb
 from utils.logger import get_logger
-from keyboards.trailer import trailer_menu_kb, trailer_file_kb
 
 router = Router()
 logger = get_logger(__name__)
@@ -95,21 +95,29 @@ async def trailer_intro(cb: CallbackQuery):
 async def trailer_reg(cb: CallbackQuery):
     await cb.answer()
     USER_TRAILER_MODE[cb.from_user.id] = "reg"
-    await cb.message.answer("📄 **TRAILER REGISTRATION 2025**\nSend trailer number: (example: H13137)", parse_mode="Markdown")
+    await cb.message.answer(
+        "📄 **TRAILER REGISTRATION 2025**\nSend trailer number: (example: H13137)",
+        parse_mode="Markdown",
+    )
 
 
 @router.callback_query(F.data == "trailer:insp")
 async def trailer_insp(cb: CallbackQuery):
     await cb.answer()
     USER_TRAILER_MODE[cb.from_user.id] = "insp"
-    await cb.message.answer("🧾 **ANNUAL TRAILER INSPECTION 2025**\nSend trailer number: (example: H13137)", parse_mode="Markdown")
+    await cb.message.answer(
+        "🧾 **ANNUAL TRAILER INSPECTION 2025**\nSend trailer number: (example: H13137)",
+        parse_mode="Markdown",
+    )
 
 
 @router.callback_query(F.data == "trailer:fullinfo")
 async def trailer_fullinfo(cb: CallbackQuery):
     await cb.answer()
     USER_TRAILER_MODE[cb.from_user.id] = "info"
-    await cb.message.answer("ℹ️ **FULL INFORMATION MODE**\nSend trailer number: (example: H13137)", parse_mode="Markdown")
+    await cb.message.answer(
+        "ℹ️ **FULL INFORMATION MODE**\nSend trailer number: (example: H13137)", parse_mode="Markdown"
+    )
 
 
 # ==============================================================
@@ -135,9 +143,7 @@ async def unit_handler(msg: Message):
         caption = build_caption(pdf, unit)
 
         await msg.answer_document(
-            FSInputFile(pdf),
-            caption=caption,
-            reply_to_message_id=msg.message_id
+            FSInputFile(pdf), caption=caption, reply_to_message_id=msg.message_id
         )
         return
 
@@ -151,9 +157,7 @@ async def unit_handler(msg: Message):
         caption = build_caption(pdf, unit)
 
         await msg.answer_document(
-            FSInputFile(pdf),
-            caption=caption,
-            reply_to_message_id=msg.message_id
+            FSInputFile(pdf), caption=caption, reply_to_message_id=msg.message_id
         )
         return
 
@@ -196,7 +200,5 @@ async def send_pdf_btn(cb: CallbackQuery):
     caption = build_caption(pdf, unit)
 
     await cb.message.answer_document(
-        FSInputFile(pdf),
-        caption=caption,
-        reply_to_message_id=cb.message.message_id
+        FSInputFile(pdf), caption=caption, reply_to_message_id=cb.message.message_id
     )

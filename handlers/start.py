@@ -2,23 +2,27 @@
 Start and help handlers
 UPDATED: Admins skip password check
 """
+
+from datetime import date
+
 from aiogram import Router
-from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from keyboards import get_main_menu_keyboard, get_help_keyboard
+from aiogram.types import CallbackQuery, Message
+from config import settings
+from keyboards import get_help_keyboard, get_main_menu_keyboard
 from keyboards.documents import documents_menu_kb
 from utils.logger import get_logger
-from config import settings
-from datetime import date
 
 logger = get_logger("handlers.start")
 router = Router()
 
+
 # FSM state for auth
 class AuthStates(StatesGroup):
     waiting_for_password = State()
+
 
 # >>> simple password (put real password in env)
 BOT_PASSWORD = settings.BOT_PASSWORD
@@ -54,9 +58,7 @@ Select an option below to get started:
 
     try:
         await message.answer(
-            text=welcome_text,
-            reply_markup=get_main_menu_keyboard(),
-            parse_mode="Markdown"
+            text=welcome_text, reply_markup=get_main_menu_keyboard(), parse_mode="Markdown"
         )
         logger.info(f"Welcome message sent to user {message.from_user.id}")
     except Exception as e:
@@ -70,14 +72,14 @@ async def cmd_start(message: Message, state: FSMContext):
     logger.info(f"User {message.from_user.id} started bot")
     user_id = message.from_user.id
     today = date.today()
-    
+
     # ✅ ADMINS: Skip password completely
     if user_id in ADMINS:
         authorized_users[user_id] = today
         logger.info(f"✅ Admin {user_id} auto-authorized (no password needed)")
         await show_welcome(message)
         return
-    
+
     # ✅ Regular users: Check if authorized today
     if authorized_users.get(user_id) == today:
         # Already authorized today
@@ -96,7 +98,9 @@ async def password_check(message: Message, state: FSMContext):
     if attempt == BOT_PASSWORD:
         authorized_users[message.from_user.id] = date.today()
         await state.clear()  # leave the auth state
-        await message.answer("✅ Password correct! You are authorized until midnight today.\nSend /start to open the menu.")
+        await message.answer(
+            "✅ Password correct! You are authorized until midnight today.\nSend /start to open the menu."
+        )
         logger.info(f"User {message.from_user.id} authorized successfully for today")
     else:
         await message.answer("❌ Wrong password. Try again.")
@@ -165,9 +169,7 @@ async def cmd_help(callback: CallbackQuery):
 
     try:
         await callback.message.edit_text(
-            text=help_text,
-            reply_markup=get_help_keyboard(),
-            parse_mode="Markdown"
+            text=help_text, reply_markup=get_help_keyboard(), parse_mode="Markdown"
         )
         await callback.answer()
         logger.info(f"Help shown to user {callback.from_user.id}")
@@ -202,9 +204,7 @@ Choose an option below:
 
     try:
         await callback.message.edit_text(
-            text=main_menu_text,
-            reply_markup=get_main_menu_keyboard(),
-            parse_mode="Markdown"
+            text=main_menu_text, reply_markup=get_main_menu_keyboard(), parse_mode="Markdown"
         )
         await callback.answer()
         logger.info(f"Main menu shown to user {callback.from_user.id}")

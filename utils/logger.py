@@ -1,7 +1,8 @@
 import logging
 import os
-from config.settings import settings
+
 from colorlog import ColoredFormatter
+from config.settings import settings
 
 
 def setup_logging():

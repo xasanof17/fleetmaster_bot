@@ -1,18 +1,20 @@
 from datetime import datetime, timedelta
-from typing import Dict, List, Any
-from gspread_asyncio import AsyncioGspreadClientManager
-from google.oauth2.service_account import Credentials
+from typing import Any
+
 from config import settings
+from google.oauth2.service_account import Credentials
+from gspread_asyncio import AsyncioGspreadClientManager
 
 # ── Environment ──────────────────────────────────────────────
-GOOGLE_CREDS_JSON    = settings.GOOGLE_CREDS_JSON
+GOOGLE_CREDS_JSON = settings.GOOGLE_CREDS_JSON
 OPS_SPREADSHEET_NAME = settings.OPS_SPREADSHEET_NAME
-OPS_WORKSHEET_NAME   = settings.OPS_WORKSHEET_NAME
+OPS_WORKSHEET_NAME = settings.OPS_WORKSHEET_NAME
 
 
 # Cache
 _CACHE = {"data": None, "time": None}
 _CACHE_TTL = timedelta(minutes=5)
+
 
 # ── Google Auth ──────────────────────────────────────────────
 def _get_creds():
@@ -23,25 +25,29 @@ def _get_creds():
     info = settings.GOOGLE_CREDS_JSON or {}
     return Credentials.from_service_account_info(info, scopes=scopes)
 
+
 _manager = AsyncioGspreadClientManager(_get_creds)
+
 
 # ── Helpers ──────────────────────────────────────────────────
 def _today() -> str:
     import datetime
+
     print("DEBUG DATETIME =", datetime)
     return datetime.datetime.now().strftime("%m/%d/%Y")
 
-async def _read_all_sections() -> Dict[str, Any]:
+
+async def _read_all_sections() -> dict[str, Any]:
     agcm = await _manager.authorize()
-    ss   = await agcm.open(OPS_SPREADSHEET_NAME)
-    ws   = await ss.worksheet(OPS_WORKSHEET_NAME)
+    ss = await agcm.open(OPS_SPREADSHEET_NAME)
+    ws = await ss.worksheet(OPS_WORKSHEET_NAME)
 
     all_vals = await ws.get_all_values()
     if len(all_vals) < 3:
         return {"stats": {}, "fleet_rows": [], "broken_road": [], "side_tow": [], "side_owner": []}
 
     # Top stats (first row)
-    stats: Dict[str, str] = {}
+    stats: dict[str, str] = {}
     for cell in all_vals[0]:
         if ":" in cell:
             k, v = cell.split(":", 1)
@@ -64,12 +70,12 @@ async def _read_all_sections() -> Dict[str, Any]:
     ]
 
     # Broken-road rows
-    broken_road_rows: List[Dict[str, str]] = []
+    broken_road_rows: list[dict[str, str]] = []
     if second_table_idx is not None and second_table_idx + 1 < len(all_vals):
         headers_br = [h.strip() or f"COL{i}" for i, h in enumerate(all_vals[second_table_idx + 1])]
         broken_road_rows = [
             {headers_br[i]: (row[i] if i < len(row) else "") for i in range(len(headers_br))}
-            for row in all_vals[second_table_idx + 2:]
+            for row in all_vals[second_table_idx + 2 :]
             if any(cell.strip() for cell in row)
         ]
 
@@ -77,34 +83,35 @@ async def _read_all_sections() -> Dict[str, Any]:
     side_tow, side_owner = [], []
     for row in all_vals[3:]:
         if len(row) > 16:
-            num  = (row[15] or "").strip()
+            num = (row[15] or "").strip()
             name = (row[16] or "").strip()
             if (num or name) and num.lower() != "tow truck":
                 side_tow.append(f"{num} - _{name}_" if name else num)
         if len(row) > 18:
-            num  = (row[17] or "").strip()
+            num = (row[17] or "").strip()
             name = (row[18] or "").strip()
             if (num or name) and num.lower() != "owner":
                 side_owner.append(f"{num} - _{name}_" if name else num)
 
     return {
-        "stats":       stats,
-        "fleet_rows":  fleet_rows,
+        "stats": stats,
+        "fleet_rows": fleet_rows,
         "broken_road": broken_road_rows,
-        "side_tow":    side_tow,
-        "side_owner":  side_owner,
+        "side_tow": side_tow,
+        "side_owner": side_owner,
     }
+
 
 # ── Public API ───────────────────────────────────────────────
 # services/google_ops_service.py
-async def get_data_for_vehicle_info(unit: str) -> Dict[str, str]:
+async def get_data_for_vehicle_info(unit: str) -> dict[str, str]:
     """
     Returns {'status': str, 'driver': str} for the given truck number.
     Reads row 3 as header and data from row 4 onward.
     """
     agcm = await _manager.authorize()
-    ss   = await agcm.open(OPS_SPREADSHEET_NAME)
-    ws   = await ss.worksheet(OPS_WORKSHEET_NAME)
+    ss = await agcm.open(OPS_SPREADSHEET_NAME)
+    ws = await ss.worksheet(OPS_WORKSHEET_NAME)
 
     # Grab all rows, skip the first two banner rows
     all_vals = await ws.get_all_values()
@@ -112,29 +119,26 @@ async def get_data_for_vehicle_info(unit: str) -> Dict[str, str]:
         return {"status": "N/A", "driver": "N/A"}
 
     headers = [h.strip() for h in all_vals[2]]  # row 3 is the real header
-    data_rows = all_vals[3:]                   # from row 4 down
+    data_rows = all_vals[3:]  # from row 4 down
 
     for row in data_rows:
         record = {headers[i]: row[i] if i < len(row) else "" for i in range(len(headers))}
         if str(record.get("TRUCK NUMBER")).strip() == str(unit).strip():
             return {
                 "status": record.get("CURRENT STATUS", "N/A") or "N/A",
-                "driver": record.get("DRIVER NAME", "N/A") or "N/A"
+                "driver": record.get("DRIVER NAME", "N/A") or "N/A",
             }
 
     return {"status": "N/A", "driver": "N/A"}
 
+
 class GoogleOpsService:
-    async def get_summary(self) -> Dict[str, Any]:
+    async def get_summary(self) -> dict[str, Any]:
         """Reads OPS spreadsheet summary with caching and structured parsing."""
         global _CACHE
 
         # ⚡ Use cached data if still valid
-        if (
-            _CACHE["data"]
-            and _CACHE["time"]
-            and datetime.now() - _CACHE["time"] < _CACHE_TTL
-        ):
+        if _CACHE["data"] and _CACHE["time"] and datetime.now() - _CACHE["time"] < _CACHE_TTL:
             return _CACHE["data"]
 
         # Otherwise fetch fresh data
@@ -201,6 +205,7 @@ class GoogleOpsService:
             "=========================\n"
             f"*DATE* : {d['date']}"
         )
+
 
 # Singleton export
 google_ops_service = GoogleOpsService()
