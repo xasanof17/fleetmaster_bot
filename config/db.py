@@ -2,6 +2,7 @@ import os
 
 import asyncpg
 from dotenv import load_dotenv
+
 from utils.logger import get_logger
 
 load_dotenv()

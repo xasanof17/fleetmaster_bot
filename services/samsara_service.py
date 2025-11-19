@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import aiohttp
+
 from config import settings
 from utils.helpers import meters_to_miles, parse_series_value_and_time
 from utils.logger import get_logger

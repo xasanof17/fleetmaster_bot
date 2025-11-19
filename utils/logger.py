@@ -2,6 +2,7 @@ import logging
 import os
 
 from colorlog import ColoredFormatter
+
 from config.settings import settings
 
 

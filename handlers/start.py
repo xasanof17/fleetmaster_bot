@@ -10,6 +10,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
+
 from config import settings
 from keyboards import get_help_keyboard, get_main_menu_keyboard
 from keyboards.documents import documents_menu_kb
@@ -39,18 +40,18 @@ async def show_welcome(message: Message):
 
 Your comprehensive fleet management assistant powered by Samsara Cloud.
 
-🔹 **TRUCK INFORMATION** — View detailed vehicle information  
-🔹 **PM SERVICES** — Track preventive maintenance, urgent oil changes, and service schedules  
-🔹 **DOCUMENTS** — Access registrations, permits, lease agreements, and inspection records  
-🔹 **Real-time Data** — Get up-to-date fleet info  
+🔹 **TRUCK INFORMATION** — View detailed vehicle information
+🔹 **PM SERVICES** — Track preventive maintenance, urgent oil changes, and service schedules
+🔹 **DOCUMENTS** — Access registrations, permits, lease agreements, and inspection records
+🔹 **Real-time Data** — Get up-to-date fleet info
 🔹 **Easy Navigation** — Simple button interface
 
 **Features:**
-📋 Vehicle details (VIN, Plate, Year, Name, Odometer)  
-🛠 Preventive maintenance tracking and service alerts  
-📂 Centralized document storage for fleet compliance  
-🚛 Fleet overview and quick vehicle selection  
-🔍 Search by Name, VIN, or Plate Number  
+📋 Vehicle details (VIN, Plate, Year, Name, Odometer)
+🛠 Preventive maintenance tracking and service alerts
+📂 Centralized document storage for fleet compliance
+🚛 Fleet overview and quick vehicle selection
+🔍 Search by Name, VIN, or Plate Number
 ⚡ Fast caching for instant responses
 
 Select an option below to get started:
@@ -162,8 +163,8 @@ async def cmd_help(callback: CallbackQuery):
 5. Use navigation buttons (Main Menu, Back, Refresh) to move around
 
 **Navigation**
-🏠 **Main Menu** — Return to dashboard  
-🔙 **Back** — Go to previous screen  
+🏠 **Main Menu** — Return to dashboard
+🔙 **Back** — Go to previous screen
 🔄 **Refresh** — Update current data with the latest info
     """.strip()
 
@@ -193,10 +194,10 @@ async def show_main_menu(callback: CallbackQuery):
 Your fleet management command center.
 
 **Current Features:**
-🚛 **TRUCK INFORMATION** — View your entire fleet and get detailed vehicle info  
-🚚 **PM SERVICES** — Track preventive maintenance, urgent oil changes, and service schedules  
-📂 **DOCUMENTS** — Access registrations, permits, lease agreements, and inspection records  
-🔍 **Search** — Find vehicles by name, VIN, or plate instantly  
+🚛 **TRUCK INFORMATION** — View your entire fleet and get detailed vehicle info
+🚚 **PM SERVICES** — Track preventive maintenance, urgent oil changes, and service schedules
+📂 **DOCUMENTS** — Access registrations, permits, lease agreements, and inspection records
+🔍 **Search** — Find vehicles by name, VIN, or plate instantly
 ⚡ **Fast Performance** — Cached data for near-instant responses
 
 Choose an option below:

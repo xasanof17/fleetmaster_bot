@@ -3,6 +3,7 @@ import re
 
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, FSInputFile, Message
+
 from config.settings import settings
 from keyboards.trailer import trailer_file_kb, trailer_menu_kb
 from utils.logger import get_logger
@@ -96,7 +97,7 @@ async def trailer_reg(cb: CallbackQuery):
     await cb.answer()
     USER_TRAILER_MODE[cb.from_user.id] = "reg"
     await cb.message.answer(
-        "📄 **TRAILER REGISTRATION 2025**\nSend trailer number: (example: H13137)",
+        "📄 **TRAILER REGISTRATION 2025**\nSend trailer number: (example: A1001)",
         parse_mode="Markdown",
     )
 
@@ -106,7 +107,7 @@ async def trailer_insp(cb: CallbackQuery):
     await cb.answer()
     USER_TRAILER_MODE[cb.from_user.id] = "insp"
     await cb.message.answer(
-        "🧾 **ANNUAL TRAILER INSPECTION 2025**\nSend trailer number: (example: H13137)",
+        "🧾 **ANNUAL TRAILER INSPECTION 2025**\nSend trailer number: (example: A1001)",
         parse_mode="Markdown",
     )
 
@@ -116,7 +117,7 @@ async def trailer_fullinfo(cb: CallbackQuery):
     await cb.answer()
     USER_TRAILER_MODE[cb.from_user.id] = "info"
     await cb.message.answer(
-        "ℹ️ **FULL INFORMATION MODE**\nSend trailer number: (example: H13137)", parse_mode="Markdown"
+        "ℹ️ **FULL INFORMATION MODE**\nSend trailer number: (example: A1001)", parse_mode="Markdown"
     )
 
 

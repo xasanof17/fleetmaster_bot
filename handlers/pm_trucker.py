@@ -1,5 +1,6 @@
 # handlers/pm_trucker.py (FIXED WITH PAGINATION)
 import asyncio
+import contextlib
 import os
 
 from aiogram import F, Router
@@ -7,6 +8,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
+
 from keyboards.pm_trucker import (
     get_back_to_pm_keyboard,
     get_pm_trucker_menu,
@@ -74,10 +76,7 @@ async def show_pm_trucker(callback: CallbackQuery):
 async def show_all_vehicles(callback: CallbackQuery):
     """Show all vehicles with pagination - 10 per page"""
     # Parse page number
-    if callback.data.startswith("pm_vehicles_page:"):
-        page = int(callback.data.split(":")[1])
-    else:
-        page = 1
+    page = int(callback.data.split(":")[1]) if callback.data.startswith("pm_vehicles_page:") else 1
 
     await callback.answer("⚡ Loading vehicles...")
 
@@ -362,12 +361,10 @@ async def handle_live(callback: CallbackQuery):
             except Exception as e:
                 logger.error(f"Live update error: {e}")
             finally:
-                try:
+                with contextlib.suppress(Exception):
                     await callback.bot.stop_message_live_location(
                         chat_id=callback.message.chat.id, message_id=live_msg.message_id
                     )
-                except Exception:
-                    pass
 
         asyncio.create_task(updater())
     except Exception as e:

@@ -10,6 +10,7 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, FSInputFile, Message
+
 from config import settings
 from keyboards.pm_trucker import get_back_to_pm_keyboard, get_vehicles_list_keyboard
 from services import google_pm_service, samsara_service

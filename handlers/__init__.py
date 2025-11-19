@@ -4,6 +4,7 @@ Centralized router registration for all bot handlers (CLEAN VERSION)
 """
 
 from aiogram import Router
+
 from handlers.admin import router as admin_router
 from handlers.admin_refresh import router as admin_refresh_router
 from handlers.admin_tools import router as admin_tools_router

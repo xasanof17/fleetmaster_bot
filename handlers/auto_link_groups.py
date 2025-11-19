@@ -15,6 +15,7 @@ import asyncio
 from aiogram import F, Router
 from aiogram.enums import ChatType
 from aiogram.types import ChatMemberUpdated, Message
+
 from config.settings import settings
 from services.group_map import list_all_groups, upsert_mapping
 from utils.logger import get_logger

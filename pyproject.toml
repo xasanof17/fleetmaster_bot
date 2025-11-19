@@ -1,44 +1,44 @@
 [project]
 name = "fleetmaster"
 version = "1.0.0"
-description = "FleetMaster Telegram Bot"
 requires-python = ">=3.10"
 
 [tool.ruff]
 line-length = 100
 target-version = "py310"
 
-# ==============================================================
-# FORMATTER
-# ==============================================================
+# ----------------- FORMATTER -----------------
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 line-ending = "lf"
 skip-magic-trailing-comma = false
 
-# ==============================================================
-# LINTER
-# ==============================================================
+# ----------------- LINTER --------------------
 [tool.ruff.lint]
 select = [
-    "E", "F", "W", "B", "N", "UP", "I", "SIM", "PL",
+    "E", "F", "W",
+    "B", "N", "UP",
+    "I", "SIM"
 ]
-ignore = ["E501"]
 
-# ==============================================================
-# IMPORT SORTER (latest ruff rules)
-# ==============================================================
+ignore = [
+    "E501",
+    "PLR2004",
+]
+
+# ----------------- ISORT (IMPORT SORTER) -----
 [tool.ruff.lint.isort]
 combine-as-imports = true
-known-first-party = ["handlers", "config", "utils", "services"]
-default-section = "thirdparty"
 
-# MUST FIX WARNING:
+default-section = "third-party"
+
 section-order = [
     "future",
     "standard-library",
-    "thirdparty",        # <--- this is the important fix
-    "firstparty",
+    "third-party",
+    "first-party",
     "local-folder",
 ]
+
+known-first-party = ["handlers", "config", "services", "utils"]

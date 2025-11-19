@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta
 from typing import Any
 
-from config import settings
 from google.oauth2.service_account import Credentials
 from gspread_asyncio import AsyncioGspreadClientManager
+
+from config import settings
 
 # ── Environment ──────────────────────────────────────────────
 GOOGLE_CREDS_JSON = settings.GOOGLE_CREDS_JSON

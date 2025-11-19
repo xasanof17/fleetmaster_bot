@@ -2,6 +2,7 @@ import asyncio
 
 from aiogram import types
 from aiohttp import web
+
 from config import settings
 from core.bot import create_bot, create_dispatcher
 

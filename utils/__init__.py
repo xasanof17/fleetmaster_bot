@@ -21,7 +21,6 @@ try:
         parse_series_value_and_time,
     )
 except ImportError:
-    # If helpers.py doesn't exist or has different exports, skip
     pass
 
 __all__ = [

@@ -23,10 +23,7 @@ def log_location_request(user_id: int, vehicle_id: str, location_type: str, addr
             "timestamp": ts,
         }
 
-        if LOG_FILE.exists():
-            data = json.loads(LOG_FILE.read_text(encoding="utf-8"))
-        else:
-            data = []
+        data = json.loads(LOG_FILE.read_text(encoding="utf-8")) if LOG_FILE.exists() else []
 
         data.append(entry)
         LOG_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")

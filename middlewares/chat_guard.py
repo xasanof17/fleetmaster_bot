@@ -1,6 +1,7 @@
 # middlewares/chat_guard.py
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Chat, Message
+
 from config.settings import settings
 from utils import get_logger
 
