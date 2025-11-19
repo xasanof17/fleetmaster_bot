@@ -19,6 +19,7 @@ from .pm_services import (
     get_time_picker_keyboard,
 )
 from .documents import documents_menu_kb
+from .trailer import trailer_menu_kb, trailer_file_kb
 
 __all__ = [
     # main menu
@@ -44,4 +45,8 @@ __all__ = [
     "urgent_oil_list_keyboard",
     "get_calendar_keyboard",
     "get_time_picker_keyboard",
+    
+    # trailer
+    "trailer_menu_kb",
+    "trailer_file_kb",
 ]

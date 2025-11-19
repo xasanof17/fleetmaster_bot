@@ -7,7 +7,7 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     builder.add(InlineKeyboardButton(text="🚛 TRUCK INFORMATION", callback_data="pm_trucker"))
     builder.add(InlineKeyboardButton(text="📂 TRUCK DOCUMENTS", callback_data="documents"))
     builder.add(InlineKeyboardButton(text="🚚 PM SERVICES", callback_data="pm_services"))
-    builder.add(InlineKeyboardButton(text="🗳 TRAILER INFORMATION", callback_data="trailer_info"))
+    builder.add(InlineKeyboardButton(text="🗳 TRAILER INFORMATION", callback_data="trailer"))
     builder.add(InlineKeyboardButton(text="❓ Help", callback_data="help"))
     builder.adjust(1)
     return builder.as_markup()
