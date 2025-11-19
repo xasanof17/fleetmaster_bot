@@ -6,6 +6,9 @@ from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from config.settings import settings
 from keyboards.trailer import trailer_file_kb, trailer_menu_kb
+from utils.parsers import _normalize
+# IMPORT TRAILER SERVICE
+from services.google_service import google_trailer_service
 from utils.logger import get_logger
 
 router = Router()
@@ -27,11 +30,9 @@ def build_caption(pdf_path: str, default_unit: str) -> str:
     filename = os.path.basename(pdf_path).upper()
     dirname = os.path.basename(os.path.dirname(pdf_path)).upper()
 
-    # Extract unit from filename
     unit_match = re.match(r"([A-Z0-9]+)", filename)
     unit = unit_match.group(1) if unit_match else default_unit
 
-    # Detect REG or INSPECT from directory
     if "REG" in dirname or "REGISTRATION" in dirname:
         file_type = "REG"
     elif "INSP" in dirname or "INSPECT" in dirname:
@@ -39,10 +40,8 @@ def build_caption(pdf_path: str, default_unit: str) -> str:
     else:
         file_type = "UNKNOWN"
 
-    # Detect year from directory name
     year_match = re.search(r"(20[0-9]{2})", dirname)
     if not year_match:
-        # fallback, detect year from filename
         year_match = re.search(r"(20[0-9]{2})", filename)
 
     year = year_match.group(1) if year_match else ""
@@ -117,16 +116,24 @@ async def trailer_fullinfo(cb: CallbackQuery):
     await cb.answer()
     USER_TRAILER_MODE[cb.from_user.id] = "info"
     await cb.message.answer(
-        "ℹ️ **FULL INFORMATION MODE**\nSend trailer number: (example: A1001)", parse_mode="Markdown"
+        "ℹ️ **FULL INFORMATION MODE**\nSend trailer number: (example: H00530, A1001, A1034)",
+        parse_mode="Markdown",
     )
 
 
 # ==============================================================
 
-
-@router.message(F.text.regexp(r"^[A-Za-z0-9]{4,10}$"))
+@router.message(F.text)
 async def unit_handler(msg: Message):
-    unit = msg.text.strip().upper()
+    unit_raw = msg.text.strip().upper()
+
+    # ignore long texts / paragraphs
+    if len(unit_raw) > 25:
+        return
+
+    # normalize trailer number fully (slashes, spaces, symbols)
+    unit = _normalize(unit_raw)
+
     user = msg.from_user.id
     mode = USER_TRAILER_MODE.get(user)
 
@@ -134,52 +141,53 @@ async def unit_handler(msg: Message):
         await msg.answer("❌ Choose a section from the trailer menu first.")
         return
 
-    # --------------- REG ------------------
+    # =======================
+    #        REG MODE
+    # =======================
     if mode == "reg":
         pdf = find_pdf(REG_DIR, unit)
         if not pdf:
             await msg.answer("❌ Registration PDF not found.")
             return
 
-        caption = build_caption(pdf, unit)
-
+        caption = build_caption(pdf, unit_raw)
         await msg.answer_document(
             FSInputFile(pdf), caption=caption, reply_to_message_id=msg.message_id
         )
         return
 
-    # --------------- INSP ------------------
+    # =======================
+    #      INSPECTION MODE
+    # =======================
     if mode == "insp":
         pdf = find_pdf(INSP_DIR, unit)
         if not pdf:
             await msg.answer("❌ Inspection PDF not found.")
             return
 
-        caption = build_caption(pdf, unit)
-
+        caption = build_caption(pdf, unit_raw)
         await msg.answer_document(
             FSInputFile(pdf), caption=caption, reply_to_message_id=msg.message_id
         )
         return
 
-    # --------------- FULL INFO ------------------
+    # =======================
+    #     FULL INFO
+    # =======================
     if mode == "info":
+        info = await google_trailer_service.build_trailer_template(unit_raw)
+
+        if not info:
+            await msg.answer("❌ Trailer not found.")
+            return
+
         pdf_reg = find_pdf(REG_DIR, unit)
         pdf_insp = find_pdf(INSP_DIR, unit)
 
-        if not pdf_reg and not pdf_insp:
-            await msg.answer("❌ No files found for this trailer.")
-            return
-
         await msg.answer(
-            f"### {unit}\n"
-            f"VIN: *NOT SAVED YET*\n"
-            f"Plate: *NOT SAVED YET*\n"
-            f"Year: 2025\n"
-            f"GPS: NOT KNOWN\n"
-            "XTRA LEASE",
+            info,
             parse_mode="Markdown",
-            reply_markup=trailer_file_kb(unit),
+            reply_markup=trailer_file_kb(unit_raw) if (pdf_reg or pdf_insp) else None,
         )
 
 

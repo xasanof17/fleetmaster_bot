@@ -52,7 +52,7 @@ class Settings:
     OPS_WORKSHEET_NAME: str = os.getenv("OPS_WORKSHEET_NAME", "OPERATIONS")
     PM_SPREADSHEET_NAME: str = os.getenv("PM_SPREADSHEET_NAME", "PM TRUCKER")
     PM_WORKSHEET_NAME: str = os.getenv("PM_WORKSHEET_NAME", "PM_TRACKER")
-
+    PM_TRAILERS_NAME: str = os.getenv("PM_TRAILERS_NAME", "TRAILER OWNERS")
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 
     # Backward compatible key

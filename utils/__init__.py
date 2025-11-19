@@ -4,13 +4,15 @@ Export commonly used utility functions
 """
 
 # Logger
+import contextlib
+
 from utils.logger import get_logger, setup_logging
 
 # PM Formatter
 from utils.pm_formatter import format_pm_list, format_pm_vehicle_info
 
 # Helpers (if they exist)
-try:
+with contextlib.suppress(ImportError):
     from utils.helpers import (
         build_live_location_message,
         build_static_location_message,
@@ -20,8 +22,6 @@ try:
         meters_to_miles,
         parse_series_value_and_time,
     )
-except ImportError:
-    pass
 
 __all__ = [
     "get_logger",

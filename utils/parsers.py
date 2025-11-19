@@ -2,8 +2,6 @@
 
 import re
 
-import emoji
-
 # ─────────────────────────────────────────────
 # REGEX DEFINITIONS (FINAL V4 ENGINE)
 # ─────────────────────────────────────────────
@@ -31,24 +29,39 @@ DRIVER_RE = re.compile(
 
 
 def _strip_emoji(text: str) -> str:
-    """Remove emojis but keep text intact."""
-    return emoji.replace_emoji(text or "", "")
+    return re.sub(
+        r"[\U0001F600-\U0001F64F"
+        r"\U0001F300-\U0001F5FF"
+        r"\U0001F680-\U0001F6FF"
+        r"\U0001F1E0-\U0001F1FF"
+        r"\u2600-\u26FF\u2700-\u27BF]+",
+        "",
+        text,
+    )
 
 
 def _normalize(text: str) -> str:
-    """Normalize symbols to spaces + collapse whitespace."""
+    """Normalize any trailer number into a clean alphanumeric key."""
     if not text:
         return ""
 
-    t = _strip_emoji(text)
+    # Remove emojis
+    t = _strip_emoji(text).upper()
 
-    # Replace separators (# - _ | . , / etc)
-    t = re.sub(r"[\#\-\_\|\.,\/\(\)]+", " ", t)
+    # Replace ALL separators with a single space
+    t = re.sub(r"[#\-\_\|\.,\/\(\)]+", " ", t)
 
-    # Collapse multiple spaces
-    t = re.sub(r"\s+", " ", t)
+    # Collapse multiple spaces into one
+    t = re.sub(r"\s+", " ", t).strip()
 
-    return t.strip()
+    # FINAL STEP:
+    # Remove spaces entirely to produce a clean search key
+    # "A1046 415" → "A1046415"
+    # "A1038/53007" → "A103853007"
+    # "SM404618 / A1050" → "SM404618A1050"
+    t = t.replace(" ", "")
+
+    return t
 
 
 def _format_us_phone(raw: str | None) -> str | None:
