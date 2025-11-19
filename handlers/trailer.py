@@ -95,21 +95,21 @@ async def trailer_intro(cb: CallbackQuery):
 async def trailer_reg(cb: CallbackQuery):
     await cb.answer()
     USER_TRAILER_MODE[cb.from_user.id] = "reg"
-    await cb.message.answer("📄 **REGISTRATION**\nSend trailer unit:", parse_mode="Markdown")
+    await cb.message.answer("📄 **TRAILER REGISTRATION 2025**\nSend trailer number: (example: H13137)", parse_mode="Markdown")
 
 
 @router.callback_query(F.data == "trailer:insp")
 async def trailer_insp(cb: CallbackQuery):
     await cb.answer()
     USER_TRAILER_MODE[cb.from_user.id] = "insp"
-    await cb.message.answer("🧾 **INSPECTION**\nSend trailer unit:", parse_mode="Markdown")
+    await cb.message.answer("🧾 **ANNUAL TRAILER INSPECTION 2025**\nSend trailer number: (example: H13137)", parse_mode="Markdown")
 
 
 @router.callback_query(F.data == "trailer:fullinfo")
 async def trailer_fullinfo(cb: CallbackQuery):
     await cb.answer()
     USER_TRAILER_MODE[cb.from_user.id] = "info"
-    await cb.message.answer("ℹ️ **FULL INFORMATION MODE**\nSend trailer unit:", parse_mode="Markdown")
+    await cb.message.answer("ℹ️ **FULL INFORMATION MODE**\nSend trailer number: (example: H13137)", parse_mode="Markdown")
 
 
 # ==============================================================
