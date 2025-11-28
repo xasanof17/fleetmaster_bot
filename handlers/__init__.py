@@ -25,6 +25,7 @@ from handlers.start import router as start_router
 # Trailer Handler
 from handlers.trailer import router as trailer_router
 
+from handlers.admin_users import router as admin_users_router
 # Optional search router
 try:
     from handlers.search import router as search_router
@@ -50,6 +51,7 @@ routers = [
     pm_trucker_router,
     documents_router,
     trailer_router,
+    admin_users_router,
 ]
 
 # Optional search router

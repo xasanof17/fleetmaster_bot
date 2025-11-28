@@ -11,3 +11,4 @@ colorlog
 services
 emoji
 ruff
+openpyxl
