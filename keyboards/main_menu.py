@@ -9,10 +9,10 @@ def get_main_menu_keyboard(user_id: int | None = None) -> InlineKeyboardMarkup:
     """
 
     buttons = [
-        [InlineKeyboardButton(text="🚛 Truck information", callback_data="truck_info")],
-        [InlineKeyboardButton(text="🚚 PM services", callback_data="pm_services")],
-        [InlineKeyboardButton(text="📂 Documents", callback_data="documents")],
-        [InlineKeyboardButton(text="🗳 Trailer information", callback_data="trailer")],
+        [InlineKeyboardButton(text="🚛 TRUCK INFORMATION", callback_data="pm_trucker")],
+        [InlineKeyboardButton(text="📂 TRUCK DOCUMENTS", callback_data="documents")],
+        [InlineKeyboardButton(text="🚚 PM SERVICES", callback_data="pm_services")],
+        [InlineKeyboardButton(text="🗳 TRAILER INFORMATION", callback_data="trailer")],
         [InlineKeyboardButton(text="❓ Help", callback_data="help")],
     ]
 
