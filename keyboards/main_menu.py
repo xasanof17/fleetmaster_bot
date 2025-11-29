@@ -1,20 +1,39 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from config import settings
 
 
-def get_main_menu_keyboard() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="🚛 TRUCK INFORMATION", callback_data="pm_trucker"))
-    builder.add(InlineKeyboardButton(text="📂 TRUCK DOCUMENTS", callback_data="documents"))
-    builder.add(InlineKeyboardButton(text="🚚 PM SERVICES", callback_data="pm_services"))
-    builder.add(InlineKeyboardButton(text="🗳 TRAILER INFORMATION", callback_data="trailer"))
-    builder.add(InlineKeyboardButton(text="❓ Help", callback_data="help"))
-    builder.adjust(1)
-    return builder.as_markup()
+def get_main_menu_keyboard(user_id: int | None = None) -> InlineKeyboardMarkup:
+    """
+    Main menu keyboard.
+    Admins automatically see extra menu buttons.
+    """
+
+    buttons = [
+        [InlineKeyboardButton(text="🚛 Truck information", callback_data="truck_info")],
+        [InlineKeyboardButton(text="🚚 PM services", callback_data="pm_services")],
+        [InlineKeyboardButton(text="📂 Documents", callback_data="documents")],
+        [InlineKeyboardButton(text="🗳 Trailer information", callback_data="trailer")],
+        [InlineKeyboardButton(text="❓ Help", callback_data="help")],
+    ]
+
+    # Admin section
+    # if user_id is not None and user_id in settings.ADMINS:
+    #     buttons.append(
+    #         [InlineKeyboardButton(text="⚙️ Manage Users", callback_data="admin:users")]
+    #     )
+    #     buttons.append(
+    #         [InlineKeyboardButton(text="🛠 Admin Tools", callback_data="admin:tools")]
+    #     )
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_help_keyboard() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="🏠 Main Menu", callback_data="main_menu"))
-    builder.adjust(1)
-    return builder.as_markup()
+    """
+    Simple help keyboard: back to main menu.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 Main Menu", callback_data="main_menu")]
+        ]
+    )

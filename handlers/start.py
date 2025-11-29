@@ -1,16 +1,5 @@
 """
 Start and access-control handlers
-
-New logic:
-- Admins are auto-authorized.
-- Other users must submit an access request (Contact, Gmail, full name, position).
-- Phone number is taken only from Telegram contact share (no manual input).
-- Users select their job position (role) from inline buttons.
-- Admins receive an approval message with buttons:
-  • Give access
-  • Remove access
-  • Cancel
-- User data is stored temporarily in JSON files (see services/access_control.py).
 """
 
 from aiogram import F, Router
@@ -36,14 +25,12 @@ from utils.logger import get_logger
 logger = get_logger("handlers.start")
 router = Router()
 
-# Admins from .env (ADMINS=123,456)
 ADMINS = set(settings.ADMINS or [])
 
 
 # =====================================================
-#  FSM for access onboarding
+# FSM
 # =====================================================
-
 
 class AccessForm(StatesGroup):
     waiting_for_contact = State()
@@ -53,35 +40,16 @@ class AccessForm(StatesGroup):
 
 
 # =====================================================
-#  Helpers
+# Helpers
 # =====================================================
 
-
 def has_access(user_id: int) -> bool:
-    """
-    Unified access check used across the bot.
-
-    Admins always have access.
-    Regular users must be APPROVED in access_storage.
-    """
     if user_id in ADMINS:
         return True
     return access_storage.has_access(user_id)
 
 
-def is_authorized_today(user_id: int) -> bool:
-    """
-    Backwards-compatible alias used by other handlers.
-
-    Internally now just checks has_access().
-    """
-    return has_access(user_id)
-
-
 def require_auth_message() -> str:
-    """
-    Standard message when user tries to open protected features without access.
-    """
     return (
         "🔒 You do not have access yet.\n"
         "Send /start and submit your info so an admin can review your request."
@@ -89,9 +57,6 @@ def require_auth_message() -> str:
 
 
 async def show_welcome(message: Message) -> None:
-    """
-    Send welcome/main menu for users who already have access.
-    """
     welcome_text = """
 🚛 **Welcome to FleetMaster Bot!**
 
@@ -103,57 +68,31 @@ Your comprehensive fleet management assistant powered by Samsara Cloud.
 🔹 **Real-time Data** — Samsara-powered fleet status  
 🔹 **Easy Navigation** — One-tap menus
 
-📋 Vehicle details (VIN, Plate, Year, Name, Odometer)  
-🛠 PM tracking and alerts  
-📂 Centralized document storage  
-🔍 Search by Name, VIN, or Plate  
-⚡ Fast caching for instant responses
+Select an option below:
+""".strip()
 
-Select an option below to get started:
-    """.strip()
-
-    try:
-        await message.answer(
-            text=welcome_text,
-            reply_markup=get_main_menu_keyboard(),
-            parse_mode="Markdown",
-        )
-        logger.info("Welcome message sent to user %s", message.from_user.id)
-    except Exception as e:  # noqa: BLE001
-        logger.error("Error sending welcome message: %s", e)
-        await message.answer("❌ Something went wrong. Please try again.")
+    await message.answer(
+        welcome_text,
+        reply_markup=get_main_menu_keyboard(message.from_user.id),
+        parse_mode="Markdown"
+    )
 
 
-def _admin_keyboard_for_user(user_id: int) -> InlineKeyboardMarkup:
-    """
-    Inline buttons for admins to approve or deny access.
-    """
+def _admin_keyboard_for_user(uid: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text="✅ Give access",
-                    callback_data=f"access:approve:{user_id}",
-                ),
-                InlineKeyboardButton(
-                    text="❌ Remove access",
-                    callback_data=f"access:deny:{user_id}",
-                ),
+                InlineKeyboardButton(text="✅ Give access", callback_data=f"access:approve:{uid}"),
+                InlineKeyboardButton(text="❌ Remove access", callback_data=f"access:deny:{uid}"),
             ],
             [
-                InlineKeyboardButton(
-                    text="🚫 Cancel",
-                    callback_data=f"access:cancel:{user_id}",
-                )
-            ],
+                InlineKeyboardButton(text="🚫 Cancel", callback_data=f"access:cancel:{uid}")
+            ]
         ]
     )
 
 
 def _role_keyboard() -> InlineKeyboardMarkup:
-    """
-    Inline keyboard for selecting user position / role.
-    """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Manager", callback_data="role:Manager")],
@@ -168,402 +107,275 @@ def _role_keyboard() -> InlineKeyboardMarkup:
 
 
 # =====================================================
-#  /start — main entrypoint
+# /start
 # =====================================================
 
-
 @router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext) -> None:
-    """
-    /start flow:
-
-    - Admins: auto-enter main menu (no form, no password).
-    - Approved users: go straight to main menu.
-    - Pending users: see status message.
-    - New / denied users: start access request form (contact → gmail → full name → role).
-    """
+async def cmd_start(message: Message, state: FSMContext):
     user = message.from_user
     if not user:
         return
 
     user_id = user.id
+    await state.clear()
     logger.info("User %s sent /start", user_id)
 
-    # Clear any previous FSM state
-    await state.clear()
-
-    # 1) Admins: always in
+    # -----------------------------
+    # 1. Admin -> direct access
+    # -----------------------------
     if user_id in ADMINS:
-        logger.info("✅ Admin %s auto-authorized (no form required)", user_id)
         await show_welcome(message)
         return
 
-    # 2) Check existing access record
+    # -----------------------------
+    # 2. Check saved access request
+    # -----------------------------
     existing = access_storage.get(user_id)
 
-    if existing and existing.status is AccessStatus.APPROVED:
-        logger.info("✅ User %s already approved — showing main menu", user_id)
-        await show_welcome(message)
-        return
+    if existing:
+        # APPROVED → go to welcome screen
+        if existing.status == AccessStatus.APPROVED:
+            await show_welcome(message)
+            return
 
-    if existing and existing.status is AccessStatus.PENDING:
-        await message.answer(
-            "⌛ Your access request is still under review by an admin.\n"
-            "We will notify you as soon as the decision is made."
-        )
-        logger.info("User %s tried /start but request is still pending", user_id)
-        return
+        # PENDING → no need to retry onboarding
+        if existing.status == AccessStatus.PENDING:
+            await message.answer(
+                "⌛ Your access request is still under review.\n"
+                "We will notify you once it's approved."
+            )
+            return
 
-    if existing and existing.status is AccessStatus.DENIED:
-        await message.answer(
-            "❌ Your previous access request was rejected.\n"
-            "If this is a mistake, please contact an admin.\n\n"
-            "You can submit a new request.\n"
-            "📱 First, please share your phone number using the button below:",
-        )
-    else:
-        # 3) Fresh user — start onboarding
-        await message.answer(
-            "👋 Welcome! To request access, please share your phone number using the button below:",
-        )
+        # DENIED → do NOT show onboarding again
+        if existing.status == AccessStatus.DENIED:
+            await message.answer(
+                "❌ Your previous request was denied.\n"
+                "If this is incorrect, contact an admin."
+            )
+            return
 
+    # -----------------------------
+    # 3. NEW USER → ask for contact
+    # -----------------------------
     share_kb = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="Share Contact 📱", request_contact=True)]],
         resize_keyboard=True,
     )
-    await message.answer(
-        "Tap the button to share your contact:",
-        reply_markup=share_kb,
-    )
+
+    await message.answer("👋 Welcome! To request access, please share your phone number:")
+    await message.answer("Tap the button to share your contact:", reply_markup=share_kb)
+
     await state.set_state(AccessForm.waiting_for_contact)
 
 
 # =====================================================
-#  AccessForm steps
+# Contact → Gmail → Full name → Role
 # =====================================================
 
-
 @router.message(AccessForm.waiting_for_contact)
-async def process_contact(message: Message, state: FSMContext) -> None:
-    """
-    Get phone number only from Telegram contact.
-    """
+async def process_contact(message: Message, state: FSMContext):
     if not message.contact:
         await message.answer("❗ Please use the button to share your contact.")
         return
 
-    phone_number = message.contact.phone_number
-    await state.update_data(phone=phone_number)
+    await state.update_data(phone=message.contact.phone_number)
 
-    # Remove reply keyboard and ask for Gmail
     await message.answer(
         "✉️ Now send your *active Gmail address*.\nExample: `yourname@gmail.com`",
         reply_markup=ReplyKeyboardRemove(),
-        parse_mode="Markdown",
+        parse_mode="Markdown"
     )
+
     await state.set_state(AccessForm.waiting_for_gmail)
 
 
 @router.message(AccessForm.waiting_for_gmail)
-async def process_gmail(message: Message, state: FSMContext) -> None:
-    gmail_raw = (message.text or "").strip()
-    gmail = gmail_raw.lower()
+async def process_gmail(message: Message, state: FSMContext):
+    gmail = (message.text or "").strip().lower()
 
     if "@" not in gmail or "." not in gmail:
-        await message.answer("❌ This doesn't look like a valid email. Please send a correct Gmail address.")
+        await message.answer("❌ Invalid email. Please send a correct Gmail address.")
         return
 
     await state.update_data(gmail=gmail)
-    await message.answer(
-        "👤 Great. Now send your *full name* (First Last).",
-        parse_mode="Markdown",
-    )
+
+    await message.answer("👤 Great. Now send your *full name* (First Last).", parse_mode="Markdown")
     await state.set_state(AccessForm.waiting_for_full_name)
 
 
 @router.message(AccessForm.waiting_for_full_name)
-async def process_full_name(message: Message, state: FSMContext) -> None:
+async def process_full_name(message: Message, state: FSMContext):
     full_name = (message.text or "").strip()
-    if not message.from_user:
-        return
 
     if len(full_name.split()) < 2:
-        await message.answer("❌ Please send full name: at least first and last name.")
+        await message.answer("❌ Please send both first and last name.")
         return
 
     await state.update_data(full_name=full_name)
 
-    # Ask for role selection
-    await message.answer(
-        "🧑‍💼 Finally, select your job position:",
-        reply_markup=_role_keyboard(),
-    )
+    await message.answer("🧑‍💼 Finally, choose your role:", reply_markup=_role_keyboard())
     await state.set_state(AccessForm.waiting_for_role)
 
 
 @router.callback_query(AccessForm.waiting_for_role, F.data.startswith("role:"))
-async def process_role(callback: CallbackQuery, state: FSMContext) -> None:
-    """
-    Handle role selection, create AccessRequest, notify admins.
-    """
-    if not callback.from_user:
-        return
-
-    role = callback.data.split("role:", maxsplit=1)[1]
+async def process_role(callback: CallbackQuery, state: FSMContext):
+    role = callback.data.split("role:", 1)[1]
 
     data = await state.get_data()
     await state.clear()
 
     user = callback.from_user
 
-    gmail = data.get("gmail", "")
-    phone = data.get("phone", "")
-    full_name = data.get("full_name", "")
-
     req = AccessRequest(
         tg_id=user.id,
         telegram_username=f"@{user.username}" if user.username else None,
-        full_name=full_name,
-        phone=phone,
-        gmail=gmail,
+        full_name=data["full_name"],
+        phone=data["phone"],
+        gmail=data["gmail"],
         role=role,
         status=AccessStatus.PENDING,
     )
 
-    # Persist as pending
     access_storage.save_pending(req)
 
-    # Notify user
     await callback.message.edit_text(
         f"✅ Your access request has been submitted.\n"
         f"Role: <b>{role}</b>\n"
-        f"Admins will review it and you will receive a notification once a decision is made.",
-        parse_mode="HTML",
+        f"Admins will review it soon.",
+        parse_mode="HTML"
     )
 
-    # Notify admins
-    admins = list(ADMINS)
-    if not admins:
-        logger.warning("No ADMINS configured, cannot send access request notifications.")
-        await callback.answer()
-        return
-
-    text_for_admin = (
-        "🆕 <b>New User Access Request</b>\n\n"
-        f"<b>Name:</b> {req.full_name}\n"
-        f"<b>Phone:</b> {req.phone}\n"
-        f"<b>Gmail:</b> {req.gmail}\n"
-        f"<b>Telegram:</b> {req.telegram_username or '—'}\n"
-        f"<b>Role:</b> {req.role}\n"
-        f"<b>User ID:</b> <code>{req.tg_id}</code>\n\n"
-        "What would you like to do?"
-    )
     kb = _admin_keyboard_for_user(req.tg_id)
 
-    for admin_id in admins:
+    for admin_id in ADMINS:
         try:
-            await callback.message.bot.send_message(
-                chat_id=admin_id,
-                text=text_for_admin,
+            await callback.bot.send_message(
+                admin_id,
+                (
+                    "🆕 <b>New Access Request</b>\n\n"
+                    f"<b>Name:</b> {req.full_name}\n"
+                    f"<b>Phone:</b> {req.phone}\n"
+                    f"<b>Email:</b> {req.gmail}\n"
+                    f"<b>Telegram:</b> {req.telegram_username or '—'}\n"
+                    f"<b>Role:</b> {req.role}\n"
+                    f"<b>User ID:</b> <code>{req.tg_id}</code>"
+                ),
                 reply_markup=kb,
-                parse_mode="HTML",
+                parse_mode="HTML"
             )
-        except Exception as e:  # noqa: BLE001
-            logger.error("Failed to send access request to admin %s: %s", admin_id, e)
+        except Exception as e:
+            logger.error("Failed to notify admin %s: %s", admin_id, e)
 
     await callback.answer()
 
 
 # =====================================================
-#  Admin callbacks: approve / deny / cancel
+# Admin actions (approve / deny)
 # =====================================================
 
-
 @router.callback_query(F.data.startswith("access:"))
-async def handle_access_callback(callback: CallbackQuery) -> None:
-    if not callback.from_user:
+async def handle_access_callback(callback: CallbackQuery):
+    if callback.from_user.id not in ADMINS:
+        await callback.answer("Not allowed.", show_alert=True)
         return
 
-    admin_id = callback.from_user.id
-    if admin_id not in ADMINS:
-        await callback.answer("You are not allowed to manage access.", show_alert=True)
-        return
-
-    try:
-        _, action, user_id_str = (callback.data or "").split(":")
-        target_user_id = int(user_id_str)
-    except Exception:  # noqa: BLE001
-        await callback.answer("Invalid data.", show_alert=True)
-        return
+    _, action, user_id_str = callback.data.split(":")
+    target_id = int(user_id_str)
 
     if action == "cancel":
-        await callback.answer("Cancelled.", show_alert=False)
-        try:
-            await callback.message.edit_reply_markup(reply_markup=None)
-        except Exception:  # noqa: BLE001
-            pass
+        await callback.message.edit_reply_markup(None)
+        await callback.answer("Cancelled.")
         return
 
     if action not in {"approve", "deny"}:
-        await callback.answer("Unknown action.", show_alert=True)
+        await callback.answer("Unknown action.")
         return
 
     new_status = AccessStatus.APPROVED if action == "approve" else AccessStatus.DENIED
-    req = access_storage.update_status(
-        tg_id=target_user_id,
-        new_status=new_status,
-        approved_by=admin_id,
-    )
+    req = access_storage.update_status(target_id, new_status, approved_by=callback.from_user.id)
 
     if not req:
-        await callback.answer("Request not found.", show_alert=True)
+        await callback.answer("User not found.", show_alert=True)
         return
 
-    status_text = "✅ Access GRANTED" if new_status is AccessStatus.APPROVED else "❌ Access DENIED"
+    status_text = "✅ Access GRANTED" if new_status == AccessStatus.APPROVED else "❌ Access DENIED"
 
-    # Update admin message
+    await callback.message.edit_text(
+        f"{callback.message.text}\n\n<b>{status_text}</b>\n<b>By:</b> @{callback.from_user.username}",
+        parse_mode="HTML"
+    )
+
+    await callback.answer("Done.")
+
+    # notify user
     try:
-        original_text = callback.message.text or ""
-        updated = f"{original_text}\n\n<b>{status_text}</b>\n<b>By:</b> @{callback.from_user.username or admin_id}"
-        await callback.message.edit_text(updated, parse_mode="HTML")
-    except Exception as e:  # noqa: BLE001
-        logger.error("Failed to edit admin message: %s", e)
-
-    await callback.answer("Done.", show_alert=False)
-
-    # Notify user
-    try:
-        if new_status is AccessStatus.APPROVED:
-            await callback.message.bot.send_message(
-                chat_id=target_user_id,
-                text=(
-                    "✅ Your access request has been <b>approved</b>.\n\n"
-                    "Welcome to FleetMaster Bot. You can now use dispatcher features."
-                ),
+        if new_status == AccessStatus.APPROVED:
+            await callback.bot.send_message(
+                target_id,
+                "✅ Your access has been approved.\nWelcome to FleetMaster Bot!",
                 parse_mode="HTML",
             )
         else:
-            await callback.message.bot.send_message(
-                chat_id=target_user_id,
-                text=(
-                    "❌ Your access request has been <b>rejected</b>.\n"
-                    "If you think this is a mistake, please contact an admin."
-                ),
+            await callback.bot.send_message(
+                target_id,
+                "❌ Your access request has been rejected.",
                 parse_mode="HTML",
             )
-    except Exception as e:  # noqa: BLE001
-        logger.error("Failed to notify user %s about decision: %s", target_user_id, e)
+    except:
+        pass
 
 
 # =====================================================
-#  Help & main menu (protected)
+# Help & Main Menu
 # =====================================================
-
 
 @router.callback_query(lambda c: c.data == "help")
-async def cmd_help(callback: CallbackQuery) -> None:
-    # Protect: only for users with access
+async def cmd_help(callback: CallbackQuery):
     if not has_access(callback.from_user.id):
         await callback.answer(require_auth_message(), show_alert=True)
         return
-
-    logger.info("User %s requested help", callback.from_user.id)
 
     help_text = """
 ❓ **FleetMaster Bot Help**
 
-**Available Features**
+🚛 Truck Information  
+🚚 PM Services  
+📂 Documents  
+🗳 Trailer Information  
+🔍 Search  
+""".strip()
 
-🚛 **TRUCK INFORMATION**
-• View all vehicles in your fleet  
-• See VIN, plate number, year, name and odometer  
-
-🔍 **Search**
-• Search by vehicle name  
-• Search by VIN  
-• Search by license plate  
-
-🚚 **PM SERVICES**
-• View PM schedules and mileage  
-• See overdue or upcoming PM  
-• Filter urgent oil changes  
-
-📂 **DOCUMENTS**
-• Truck registrations and permits  
-• Lease agreements  
-• Annual inspections  
-
-🗳 **TRAILER INFORMATION**
-• Trailer registrations  
-• Inspections  
-• Quick access per unit
-
-Use the buttons below to navigate.
-    """.strip()
-
-    try:
-        await callback.message.edit_text(
-            text=help_text,
-            reply_markup=get_help_keyboard(),
-            parse_mode="Markdown",
-        )
-        await callback.answer()
-        logger.info("Help message shown to user %s", callback.from_user.id)
-    except Exception as e:  # noqa: BLE001
-        logger.error("Error showing help: %s", e)
-        await callback.answer("❌ Error loading help", show_alert=True)
+    await callback.message.edit_text(help_text, reply_markup=get_help_keyboard(), parse_mode="Markdown")
+    await callback.answer()
 
 
 @router.callback_query(lambda c: c.data == "main_menu")
-async def main_menu(callback: CallbackQuery) -> None:
-    # Protect: only for users with access
+async def main_menu(callback: CallbackQuery):
     if not has_access(callback.from_user.id):
         await callback.answer(require_auth_message(), show_alert=True)
         return
 
-    logger.info("User %s requested main menu", callback.from_user.id)
+    await callback.message.edit_text(
+        "🏠 **Main Menu**",
+        reply_markup=get_main_menu_keyboard(callback.from_user.id),
+        parse_mode="Markdown",
+    )
 
-    main_menu_text = """
-🏠 **Main Menu**
-
-Choose what you want to do:
-
-• 🚛 Truck information  
-• 🚚 PM services  
-• 📂 Truck documents  
-• 🗳 Trailer information  
-• ❓ Help
-    """.strip()
-
-    try:
-        await callback.message.edit_text(
-            text=main_menu_text,
-            reply_markup=get_main_menu_keyboard(),
-            parse_mode="Markdown",
-        )
-        await callback.answer()
-        logger.info("Main menu shown to user %s", callback.from_user.id)
-    except Exception as e:  # noqa: BLE001
-        logger.error("Error showing main menu: %s", e)
-        await callback.answer("❌ Error loading main menu", show_alert=True)
+    await callback.answer()
 
 
 # =====================================================
-#  (Optional) Legacy text button for Documents
+# Legacy: Documents by text button
 # =====================================================
-
 
 @router.message(lambda m: m.text == "📂 Documents")
-async def open_documents(message: Message) -> None:
+async def open_docs(message: Message):
     if not has_access(message.from_user.id):
         await message.answer(require_auth_message())
         return
 
-    doc_intro = (
-        "📂 **DOCUMENTS** — Fleet & Compliance Files\n\n"
-        "Access key paperwork in one place:\n"
-        "• Registrations and state permits\n"
-        "• Lease agreements and annual inspections\n\n"
-        "Select a document category below to view or download:"
+    await message.answer(
+        "📂 **DOCUMENTS** — Fleet & Compliance Files",
+        reply_markup=documents_menu_kb(),
+        parse_mode="Markdown",
     )
-    await message.answer(doc_intro, reply_markup=documents_menu_kb(), parse_mode="Markdown")
