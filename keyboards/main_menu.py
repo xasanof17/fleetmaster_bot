@@ -17,13 +17,13 @@ def get_main_menu_keyboard(user_id: int | None = None) -> InlineKeyboardMarkup:
     ]
 
     # Admin section
-    # if user_id is not None and user_id in settings.ADMINS:
-    #     buttons.append(
-    #         [InlineKeyboardButton(text="⚙️ Manage Users", callback_data="admin:users")]
-    #     )
-    #     buttons.append(
-    #         [InlineKeyboardButton(text="🛠 Admin Tools", callback_data="admin:tools")]
-    #     )
+    if user_id is not None and user_id in settings.ADMINS:
+        buttons.append(
+            [InlineKeyboardButton(text="⚙️ Manage Users", callback_data="admin:users")]
+        )
+        buttons.append(
+            [InlineKeyboardButton(text="🛠 Admin Tools", callback_data="admin:tools")]
+        )
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
