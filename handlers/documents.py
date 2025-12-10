@@ -219,20 +219,30 @@ async def ask_truck_number(cb: CallbackQuery, state: FSMContext):
 
 @router.message(StateFilter(DocumentSearch.waiting_for_truck), F.text)
 async def search_truck_number(msg: Message, state: FSMContext):
-    """Process truck number search"""
+    """Allow user to repeatedly search trucks without exiting the state"""
+    text = msg.text.strip()
+
+    # If user wants to cancel
+    if text.lower() in ["cancel", "/cancel", "stop"]:
+        await state.clear()
+        await msg.answer("❌ Search cancelled.", reply_markup=documents_menu_kb())
+        return
+
     data = await state.get_data()
     doc_type = data.get("doc_type")
-    truck_number = msg.text.strip().lstrip("/")
+    truck_number = text.lstrip("/")
 
     try:
         file_path = find_document(truck_number, doc_type)
         if not file_path:
             await msg.answer(
-                f"❌ No document found for *Truck {truck_number}*", parse_mode="Markdown"
+                f"❌ No document found for *{truck_number}*.\n"
+                f"Send another truck number or /cancel",
+                parse_mode="Markdown",
             )
             return
 
-        caption = f"📄 **Truck {truck_number}** — {doc_type.replace('_', ' ').title()}"
+        caption = f"📄 **{truck_number}** — {doc_type.replace('_', ' ').title()}"
         markup = get_send_group_keyboard(truck_number) if msg.from_user.id in ADMINS else None
 
         await msg.answer_document(
@@ -241,13 +251,14 @@ async def search_truck_number(msg: Message, state: FSMContext):
             parse_mode="Markdown",
             reply_markup=markup,
         )
-        logger.info(f"Search: Sent document for truck {truck_number}")
+        logger.info(f"Search: Sent document for {truck_number}")
+
+        # DO NOT clear state — allow more inputs
+        await msg.answer("Send next truck number or /cancel", parse_mode="Markdown")
 
     except Exception as e:
-        logger.error(f"Error searching document {truck_number}: {e}")
+        logger.error(f"Search error for {truck_number}: {e}")
         await msg.answer("❌ Error searching document.", parse_mode="Markdown")
-    finally:
-        await state.clear()
 
 
 @router.message(F.text == "/cancel", StateFilter(DocumentSearch.waiting_for_truck))
