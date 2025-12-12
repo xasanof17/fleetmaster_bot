@@ -1,7 +1,7 @@
 # services/google_service.py
 import datetime
+import time
 from typing import Any
-
 from google.oauth2.service_account import Credentials
 from gspread_asyncio import AsyncioGspreadClientManager
 
@@ -189,183 +189,186 @@ google_pm_service = GooglePMService()
 # =============================================================
 #        TRAILER OWNERS SERVICE (FULL + FUZZY SEARCH)
 # =============================================================
+def _gps_label(value: str) -> str:
+    v = str(value).strip().upper()
+    if v in {"YES", "Y", "TRUE", "1"}:
+        return "Yes ✅"
+    if v in {"NO", "N", "FALSE", "0"}:
+        return "No ❌"
+    return "Unknown ❓"
+
+
 class GoogleTrailerService:
+    def __init__(self):
+        self._cache: dict[str, dict] | None = None
+        self._last_load: float = 0
+        self._ttl: int = 120  # seconds (better for big sheets)
+
+    # --------------------------------------------------
     async def _load_sheet(self):
         agcm = await _manager.authorize()
         ss = await agcm.open(PM_SPREADSHEET_NAME)
         ws = await ss.worksheet(TRAILER_SHEET_NAME)
         return await ws.get_all_values()
 
-    # ----------------------------------------------------------
-    # PARSE EACH TRAILER TABLE
-    # ----------------------------------------------------------
-    def _parse_section(self, all_rows, start_col, end_col, owner_name):
+    # --------------------------------------------------
+    def _parse_section(
+        self,
+        rows,
+        trailer_col: int,
+        vin_col: int,
+        year_col: int,
+        plate_col: int,
+        make_col: int,
+        gps_col: int,
+        notes_col: int,
+        owner: str,
+    ):
         trailers = {}
 
-        for i in range(2, len(all_rows)):  # skip header rows
-            row = all_rows[i]
+        for i in range(2, len(rows)):  # row 3+
+            row = rows[i]
 
-            if len(row) <= start_col:
+            def cell(idx):
+                return row[idx].strip() if idx < len(row) else ""
+
+            trailer = cell(trailer_col)
+            if not trailer:
                 continue
 
-            trailer_raw = row[start_col].strip()
-            if not trailer_raw:
-                continue
+            key = _normalize(trailer)
 
-            trailer_key = _normalize(trailer_raw)
-
-            try:
-                vin = row[start_col + 1].strip()
-                year = row[start_col + 2].strip()
-                plate = row[start_col + 3].strip()
-                gps = row[start_col + 4].strip()
-                notes = row[start_col + 5].strip() if start_col + 5 < len(row) else ""
-            except Exception:
-                continue
-
-            trailers[trailer_key] = {
-                "trailer": trailer_raw,
-                "vin": vin,
-                "year": year,
-                "plate": plate,
-                "gps": gps,
-                "notes": notes,
-                "owner": owner_name,
+            trailers[key] = {
+                # RAW
+                "trailer": trailer,
+                "vin": cell(vin_col) or "no vin",
+                "year": cell(year_col) or "—",
+                "plate": cell(plate_col) or "—",
+                "make": cell(make_col) or "no make",
+                "gps": cell(gps_col),
+                "notes": cell(notes_col),
+                "owner": owner,
+                # SEARCH INDEXES
+                "_key": key,
+                "_n_trailer": key,
+                "_n_vin": _normalize(cell(vin_col)),
+                "_n_plate": _normalize(cell(plate_col)),
             }
 
-        return trailers  # FIXED — outside the loop
+        return trailers
 
-    # ----------------------------------------------------------
-    # LOAD COMPLETE SHEET
-    # ----------------------------------------------------------
+    # --------------------------------------------------
     async def load_all_trailers(self):
-        all_rows = await self._load_sheet()
+        now = time.time()
+        if self._cache and (now - self._last_load) < self._ttl:
+            return self._cache
 
-        xtra = self._parse_section(all_rows, 1, 6, "XTRA LEASE")
-        vanguard = self._parse_section(all_rows, 8, 13, "VANGUARD")
-        great_dane = self._parse_section(all_rows, 15, 20, "GREAT DANE")
+        rows = await self._load_sheet()
 
-        return {**xtra, **vanguard, **great_dane}
+        xtra = self._parse_section(rows, 1, 2, 3, 4, 5, 6, 7, "XTRA LEASE")
+        vanguard = self._parse_section(rows, 9, 10, 11, 12, 13, 14, 15, "VANGUARD")
+        great_dane = self._parse_section(rows, 17, 18, 19, 20, 21, 22, 23, "GREAT DANE")
 
-    # ----------------------------------------------------------
-    # EXACT MATCH FIRST
-    # ----------------------------------------------------------
-    async def get_trailer_info(self, trailer_number: str):
-        key = _normalize(trailer_number)
+        self._cache = {**xtra, **vanguard, **great_dane}
+        self._last_load = now
+        return self._cache
+
+    # --------------------------------------------------
+    async def get_trailer_info(self, trailer: str):
         trailers = await self.load_all_trailers()
-        return trailers.get(key)
+        return trailers.get(_normalize(trailer))
 
-    # ----------------------------------------------------------
-    # FUZZY SCORE ENGINE (Notion/Raycast style)
-    # ----------------------------------------------------------
-    def fuzzy_score(self, query: str, trailer_name: str, data: dict) -> int:
+    # --------------------------------------------------
+    def _query_allowed(self, q: str) -> bool:
+        """Minimum 3 chars OR 3 digits"""
+        if len(q) < 3:
+            return False
+        digits = sum(c.isdigit() for c in q)
+        letters = sum(c.isalpha() for c in q)
+        return digits >= 3 or letters >= 3
+
+    # --------------------------------------------------
+    def fuzzy_score(self, query: str, data: dict) -> int:
         q = _normalize(query)
-        t = _normalize(trailer_name)
 
+        if not self._query_allowed(q):
+            return 0
+
+        t = data["_n_trailer"]
         score = 0
 
-        # ------------ exact ------------
+        # 1️⃣ EXACT trailer match
         if q == t:
-            return 999
+            return 1000
 
-        # ------------ trailer number match ------------
-        if q in t:
-            score += 80
+        # 2️⃣ STRONG trailer prefix match (preferred)
+        if t.startswith(q):
+            score += 250
+        elif q in t:
+            score += 150  # weaker than prefix
 
-        # ------------ VIN ------------
-        vin = _normalize(data.get("vin", ""))
-        if q in vin:
-            score += 120
-        if q.isdigit() and q in vin:
-            score += 150  # pure numeric VIN match is strongest
+        # 3️⃣ VIN / PLATE only if trailer is weak
+        if score < 200:
+            for field in ("_n_vin", "_n_plate"):
+                val = data.get(field, "")
+                if val and q in val:
+                    score += 120
 
-        # ------------ Plate ------------
-        plate = _normalize(data.get("plate", ""))
-        if q in plate:
-            score += 100
-        if q.isdigit() and q in plate:
-            score += 130
-
-        # ------------ Year ------------
-        year = str(data.get("year", "")).strip()
-        if year and q in year:
-            score += 80
-
-        # ------------ Owner / Brand ------------
-        brand = _normalize(data.get("owner", ""))
-        if q in brand:
-            score += 70
-        # "great 2023" or "xtra 19"
-        for word in q.split():
-            if word in brand:
-                score += 50
-
-        # ------------ Numeric slices (VERY important) ------------
-        qd = "".join(filter(str.isdigit, q))
-        td = "".join(filter(str.isdigit, t))
-        if qd and qd in td:
-            score += 90
-
-        # ------------ Partial char overlap ------------
-        overlap = sum(c in t for c in q)
-        score += overlap * 3
-
-        # ------------ Length penalty ------------
+        # 4️⃣ Length penalty
         score -= abs(len(t) - len(q))
 
         return score
 
-    # ----------------------------------------------------------
-    # FIND BEST MATCH
-    # ----------------------------------------------------------
-    def fuzzy_best_match(self, query: str, trailers: dict) -> str | None:
-        best = None
-        best_score = 0
-        q = query.strip()
+    # --------------------------------------------------
+    def fuzzy_best_match(self, query: str, trailers: dict):
+        q = _normalize(query)
+        if not self._query_allowed(q):
+            return None
 
-        for key, data in trailers.items():
-            name = data["trailer"]
-            score = self.fuzzy_score(q, name, data)
-
-            if score > best_score:
-                best_score = score
-                best = name
+        best, best_score = None, 0
+        for data in trailers.values():
+            s = self.fuzzy_score(q, data)
+            if s > best_score:
+                best_score = s
+                best = data["trailer"]
 
         return best
 
-    # ----------------------------------------------------------
-    # AUTOCOMPLETE SUGGESTIONS
-    # ----------------------------------------------------------
-    def fuzzy_suggestions(self, query: str, trailers: dict, limit: int = 10):
+    # --------------------------------------------------
+    def fuzzy_suggestions(self, query: str, trailers: dict, limit: int = 6):
+        q = _normalize(query)
+        if not self._query_allowed(q):
+            return []
+
         scored = []
-
-        for key, data in trailers.items():
-            name = data["trailer"]
-            score = self.fuzzy_score(query, name, data)
-
-            if score > 20:  # avoid garbage matches
-                scored.append((score, name))
+        for data in trailers.values():
+            s = self.fuzzy_score(q, data)
+            if s >= 80:  # strong matches only
+                scored.append((s, data["trailer"]))
 
         scored.sort(reverse=True)
+        return [name for _, name in scored[:limit]]
 
-        return [name for score, name in scored[:limit]]
-
-    # ----------------------------------------------------------
-    # BUILD TEMPLATE FOR TELEGRAM
-    # ----------------------------------------------------------
-    async def build_trailer_template(self, trailer_number: str):
-        data = await self.get_trailer_info(trailer_number)
+    # --------------------------------------------------
+    async def build_trailer_template(self, trailer: str):
+        data = await self.get_trailer_info(trailer)
         if not data:
             return None
 
-        return (
+        text = (
             f"### {data['trailer']}\n"
             f"VIN: {data['vin']}\n"
             f"Plate: {data['plate']}\n"
             f"Year: {data['year']}\n"
-            f"GPS: {data['gps']}\n"
-            f"{data['owner']}"
+            f"GPS: {_gps_label(data.get('gps'))}\n"
+            f"Make: {data['make']}\n"
+            f"Owner: {data['owner']}"
         )
+
+        if data.get("notes"):
+            text += f"\nNotes: {data['notes']}"
+
+        return text
 
 
 google_trailer_service = GoogleTrailerService()
