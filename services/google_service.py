@@ -362,7 +362,7 @@ class GoogleTrailerService:
             f"Year: {data['year']}\n"
             f"GPS: {_gps_label(data.get('gps'))}\n"
             f"Make: {data['make']}\n"
-            f"Owner: {data['owner']}"
+            f"{data['owner']}"
         )
 
         if data.get("notes"):

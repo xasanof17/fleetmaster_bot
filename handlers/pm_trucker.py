@@ -209,17 +209,53 @@ async def start_vehicle_search(callback: CallbackQuery, state: FSMContext):
 
 @router.message(VehicleSearchState.waiting_for_query, F.text)
 async def process_vehicle_search(message: Message, state: FSMContext):
-    """Process the vehicle search query"""
-    query = message.text.strip()
-    if not query or len(query) < 2:
+    query = message.text.strip().lower()
+
+    if len(query) < 2:
         await message.reply("Please enter at least 2 characters for search.")
         return
 
     data = await state.get_data()
     search_type = data.get("search_type", "all")
+
     searching = await message.reply("🔍 Searching...")
 
     try:
+        # -----------------------------------------
+        # ⚡ FAST SEARCH (CACHE ONLY)
+        # -----------------------------------------
+        async with samsara_service as svc:
+            vehicles = await svc.get_vehicles(use_cache=True)
+
+        def fast_match(v):
+            name = (v.get("name") or "").lower()
+            vin = (v.get("vin") or "").lower()
+            plate = (v.get("licensePlate") or "").lower()
+
+            if search_type == "name":
+                return query in name
+            if search_type == "vin":
+                return query in vin
+            if search_type == "plate":
+                return query in plate
+
+            return query in name or query in vin or query in plate
+
+        fast_results = [v for v in vehicles if fast_match(v)]
+
+        if fast_results:
+            await searching.edit_text(
+                text=f"⚡ **Fast results for '{query}'**:",
+                reply_markup=get_vehicles_list_keyboard(
+                    fast_results[:50], page=1, per_page=10
+                ),
+                parse_mode="Markdown",
+            )
+            return
+
+        # -----------------------------------------
+        # 🐢 FALLBACK: API SEARCH
+        # -----------------------------------------
         async with samsara_service as svc:
             results = await svc.search_vehicles(query, search_type)
 
@@ -229,23 +265,21 @@ async def process_vehicle_search(message: Message, state: FSMContext):
                 reply_markup=get_back_to_pm_keyboard(),
                 parse_mode="Markdown",
             )
-        else:
-            text = f"🎯 Found {len(results)} result(s) for '{query}':"
-            await searching.edit_text(
-                text=text,
-                reply_markup=get_vehicles_list_keyboard(results, page=1, per_page=10),
-                parse_mode="Markdown",
-            )
+            return
+
+        await searching.edit_text(
+            text=f"🎯 Found {len(results)} result(s) for '{query}':",
+            reply_markup=get_vehicles_list_keyboard(results, page=1, per_page=10),
+            parse_mode="Markdown",
+        )
+
     except Exception as e:
         logger.error(f"Search error: {e}")
-        try:
-            await searching.edit_text(
-                text="❌ Search failed. Try again later.",
-                reply_markup=get_back_to_pm_keyboard(),
-                parse_mode="Markdown",
-            )
-        except:
-            await message.reply("❌ Search failed.")
+        await searching.edit_text(
+            "❌ Search failed. Try again later.",
+            reply_markup=get_back_to_pm_keyboard(),
+            parse_mode="Markdown",
+        )
 
 
 @router.message(VehicleSearchState.waiting_for_query, F.text == "/cancel")
