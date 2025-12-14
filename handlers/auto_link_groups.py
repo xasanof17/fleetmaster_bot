@@ -50,6 +50,7 @@ FAST_REFRESH_SEC = 120  # 2 min — REAL fast refresh
 # HELPERS
 # ─────────────────────────────────────────────
 
+
 def _is_admin(uid: int) -> bool:
     return uid in ADMINS
 
@@ -91,6 +92,7 @@ def _extract_units_excluding_phone(title: str) -> List[str]:
 
 async def _notify_admins(text: str):
     from aiogram import Bot
+
     bot = Bot(settings.TELEGRAM_BOT_TOKEN)
 
     for admin in ADMINS:
@@ -103,6 +105,7 @@ async def _notify_admins(text: str):
 # ─────────────────────────────────────────────
 # CORE SYNC (AUTHORITATIVE)
 # ─────────────────────────────────────────────
+
 
 async def sync_group(
     bot,
@@ -177,9 +180,10 @@ async def sync_group(
         chat_id=chat_id,
         title=title or "UNKNOWN",
         raw_title=title or "UNKNOWN",
-        driver_name=driver,
-        phone_number=phone,
+        driver_name=parsed.get("driver"),
+        phone_number=parsed.get("phone"),
         driver_is_new=_is_driver_new(title),
+        driver_status=status,
         active=active,
     )
 
@@ -202,14 +206,14 @@ async def sync_group(
         await _notify_admins(
             f"🚨 **DATA ISSUE DETECTED**\n"
             f"Chat: `{chat_id}`\n"
-            f"Title: `{title}`\n\n"
-            + "\n".join(f"• {i}" for i in issues)
+            f"Title: `{title}`\n\n" + "\n".join(f"• {i}" for i in issues)
         )
 
 
 # ─────────────────────────────────────────────
 # STARTUP RECOVERY
 # ─────────────────────────────────────────────
+
 
 @router.startup()
 async def startup_recovery(bot):
@@ -227,6 +231,7 @@ async def startup_recovery(bot):
 # ─────────────────────────────────────────────
 # FAST PERIODIC REFRESH
 # ─────────────────────────────────────────────
+
 
 async def periodic_refresh(bot):
     await asyncio.sleep(10)
@@ -251,6 +256,7 @@ async def start_periodic_refresh(bot):
 # ─────────────────────────────────────────────
 # EVENT HANDLERS
 # ─────────────────────────────────────────────
+
 
 @router.message(F.new_chat_title)
 async def on_title_change(msg: Message):
