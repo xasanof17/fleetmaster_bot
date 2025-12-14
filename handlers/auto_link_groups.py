@@ -1,16 +1,18 @@
 """
-SAFE Auto-Link System + AUTO REFRESH LOOP (NO EXTRA FILES)
------------------------------------------------------------
+SAFE Auto-Link System + AUTO REFRESH LOOP
+----------------------------------------
 
-This version:
-  ✔ Updates driver/unit/phone on ANY message
-  ✔ Updates on title change
-  ✔ Updates when bot joins/leaves
-  ✔ Manual refresh via /refresh_all_groups
-  ✔ AUTO REFRESHES ALL GROUPS EVERY 6 HOURS (even silent groups)
+✔ Updates driver/unit/phone on title change
+✔ Updates on bot permission changes
+✔ Updates on group activity (debounced)
+✔ Manual refresh via /refresh_all_groups
+✔ Auto-refreshes all groups every 6 hours
+✔ Prevents duplicate logs & admin spam
 """
 
 import asyncio
+import time
+from typing import Dict, Tuple
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
@@ -27,11 +29,28 @@ logger = get_logger(__name__)
 ADMINS = settings.ADMINS or []
 BOT_TOKEN = settings.TELEGRAM_BOT_TOKEN
 
+# ============================================================
+# INTERNAL STATE (ANTI-SPAM / ANTI-FLOOD)
+# ============================================================
+
+# chat_id -> (unit, driver, phone, title)
+_LAST_STATE: Dict[int, Tuple[str | None, str | None, str | None, str]] = {}
+
+# chat_id -> last update timestamp
+_LAST_TOUCH: Dict[int, float] = {}
+
+# debounce window for group messages
+TOUCH_COOLDOWN_SEC = 60
+
+# ensure auto-refresh starts only once per process
+_REFRESH_TASK_STARTED = False
+
 
 # ============================================================
-#   ADMIN ALERTS
+# ADMIN NOTIFICATIONS
 # ============================================================
 async def notify_admins(text: str):
+    """Send message to all admins (best-effort)."""
     from aiogram import Bot
 
     bot = Bot(BOT_TOKEN)
@@ -39,15 +58,35 @@ async def notify_admins(text: str):
     for admin in ADMINS:
         try:
             await bot.send_message(admin, text, parse_mode="Markdown")
-        except Exception as e:
-            logger.warning(f"Failed to notify admin {admin}: {e}")
+        except Exception:
+            # silent fail — admin notifications must never crash logic
+            logger.debug("Admin notify failed for %s", admin)
 
 
 # ============================================================
-#   UPDATE DB MAPPING
+# CORE UPDATE LOGIC (DEDUPED)
 # ============================================================
 async def update_mapping(chat_id: int, title: str):
+    """
+    Parse title → update DB only if something actually changed.
+    Prevents log spam, DB spam, and admin spam.
+    """
     parsed = parse_title(title)
+
+    new_state = (
+        parsed["unit"],
+        parsed["driver"],
+        parsed["phone"],
+        title.strip(),
+    )
+
+    old_state = _LAST_STATE.get(chat_id)
+
+    # nothing changed → do nothing
+    if old_state == new_state:
+        return
+
+    _LAST_STATE[chat_id] = new_state
 
     await upsert_mapping(
         unit=parsed["unit"],
@@ -57,29 +96,35 @@ async def update_mapping(chat_id: int, title: str):
         phone_number=parsed["phone"],
     )
 
-    msg = (
+    log_msg = (
+        f"GROUP UPDATED | chat={chat_id} "
+        f"unit={parsed['unit']} "
+        f"driver={parsed['driver']} "
+        f"phone={parsed['phone']}"
+    )
+
+    logger.info(log_msg)
+
+    # notify admins only on meaningful updates
+    await notify_admins(
         f"🔄 **GROUP UPDATED**\n"
-        f"Chat ID: `{chat_id}`\n"
-        f"Title: {title}\n"
+        f"Chat: `{chat_id}`\n"
         f"Unit: `{parsed['unit'] or 'UNKNOWN'}`\n"
         f"Driver: `{parsed['driver'] or 'UNKNOWN'}`\n"
         f"Phone: `{parsed['phone'] or 'UNKNOWN'}`"
     )
 
-    logger.info(msg)
-    await notify_admins(msg)
-
 
 # ============================================================
-#   AUTO REFRESH LOOP (NO EXTRA FILES)
+# AUTO REFRESH LOOP
 # ============================================================
 async def auto_refresh_loop(bot, interval_hours: int = 6):
-    """Auto refresh all groups every X hours even if silent."""
-    await asyncio.sleep(5)  # let bot start fully
+    """Refresh all known groups every X hours."""
+    await asyncio.sleep(5)  # allow bot to fully start
 
     while True:
         try:
-            logger.info("🔄 AUTO-REFRESH STARTED...")
+            logger.info("AUTO-REFRESH START")
 
             groups = await list_all_groups()
             updated = 0
@@ -87,106 +132,99 @@ async def auto_refresh_loop(bot, interval_hours: int = 6):
 
             for g in groups:
                 chat_id = g["chat_id"]
+
                 try:
                     chat = await bot.get_chat(chat_id)
                     title = (chat.title or "").strip()
-
-                    parsed = parse_title(title)
-
-                    await upsert_mapping(
-                        parsed["unit"],
-                        chat_id,
-                        title,
-                        parsed["driver"],
-                        parsed["phone"],
-                    )
-
+                    await update_mapping(chat_id, title)
                     updated += 1
-
-                except Exception as e:
+                except Exception:
                     skipped += 1
-                    logger.warning(f"AUTO-REFRESH FAIL chat={chat_id}: {e}")
 
-            logger.info(f"🔄 AUTO-REFRESH DONE → Updated={updated}, Skipped={skipped}")
+            logger.info(
+                "AUTO-REFRESH DONE | updated=%s skipped=%s",
+                updated,
+                skipped,
+            )
 
         except Exception as e:
-            logger.error(f"AUTO-REFRESH LOOP ERROR: {e}")
+            logger.error("AUTO-REFRESH LOOP ERROR: %s", e)
 
         await asyncio.sleep(interval_hours * 3600)
 
 
-# ============================================================
-#   START AUTO REFRESH WHEN BOT STARTS
-# ============================================================
 @router.startup()
 async def start_auto_refresh(bot):
-    asyncio.create_task(auto_refresh_loop(bot, interval_hours=6))
-    logger.info("⏳ AUTO REFRESH LOOP ACTIVATED")
+    """Start auto-refresh loop once per process."""
+    global _REFRESH_TASK_STARTED
+    if _REFRESH_TASK_STARTED:
+        return
+
+    _REFRESH_TASK_STARTED = True
+    asyncio.create_task(auto_refresh_loop(bot))
+    logger.info("AUTO-REFRESH LOOP ACTIVATED")
 
 
 # ============================================================
-#   1) TITLE CHANGE
+# EVENT HANDLERS
 # ============================================================
+
+# 1️⃣ Title change
 @router.message(F.new_chat_title)
 async def on_title_change(msg: Message):
-    new_title = msg.new_chat_title or msg.chat.title
-    await update_mapping(msg.chat.id, new_title)
+    await update_mapping(msg.chat.id, msg.new_chat_title or msg.chat.title)
 
 
-# ============================================================
-#   2) ANY MESSAGE IN GROUP
-# ============================================================
+# 2️⃣ Any group message (DEBOUNCED)
 @router.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
 async def on_group_message(msg: Message):
-    title = msg.chat.title or ""
-    await update_mapping(msg.chat.id, title)
+    now = time.time()
+    last = _LAST_TOUCH.get(msg.chat.id, 0)
+
+    if now - last < TOUCH_COOLDOWN_SEC:
+        return
+
+    _LAST_TOUCH[msg.chat.id] = now
+    await update_mapping(msg.chat.id, msg.chat.title or "")
 
 
-# ============================================================
-#   3) BOT PERMISSION CHANGES
-# ============================================================
+# 3️⃣ Bot permission / status changes
 @router.my_chat_member()
 async def on_bot_status(update: ChatMemberUpdated):
     chat = update.chat
     if chat.type not in (ChatType.GROUP, ChatType.SUPERGROUP):
         return
 
-    title = chat.title or ""
-    await update_mapping(chat.id, title)
+    await update_mapping(chat.id, chat.title or "")
 
 
 # ============================================================
-#   4) MANUAL ADMIN REFRESH (/refresh_all_groups)
+# MANUAL ADMIN REFRESH
 # ============================================================
 @router.message(F.text == "/refresh_all_groups")
 async def refresh_all_groups(msg: Message):
     if msg.from_user.id not in ADMINS:
         return
 
-    await msg.answer("🔄 Refreshing all truck groups… This may take a moment.")
+    await msg.answer("🔄 Refreshing all truck groups…")
 
     groups = await list_all_groups()
     if not groups:
-        return await msg.answer("⚠️ No groups in DB.")
+        return await msg.answer("⚠️ No groups in database.")
 
     updated = 0
     skipped = 0
 
-    for rec in groups:
-        chat_id = rec["chat_id"]
-
+    for g in groups:
         try:
-            chat = await msg.bot.get_chat(chat_id)
-            title = (chat.title or "").strip()
-
-            parsed = parse_title(title)
-
-            await upsert_mapping(parsed["unit"], chat_id, title, parsed["driver"], parsed["phone"])
-
+            chat = await msg.bot.get_chat(g["chat_id"])
+            await update_mapping(chat.id, chat.title or "")
             updated += 1
-
-        except Exception as e:
+        except Exception:
             skipped += 1
-            logger.warning(f"[MANUAL REFRESH] chat={chat_id} failed: {e}")
 
-    await msg.answer(f"✅ Refresh finished!\n• Updated: {updated}\n• Skipped: {skipped}")
+    await msg.answer(
+        f"✅ Refresh complete\n"
+        f"Updated: {updated}\n"
+        f"Skipped: {skipped}"
+    )

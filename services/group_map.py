@@ -23,9 +23,35 @@ This version:
 from typing import Any
 
 from config.db import get_pool
+from config.settings import settings
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# ============================================================
+# LOGGING CONTROL (NO FLOOD)
+# ============================================================
+# Only log INFO/WARNING in production. Errors always log.
+_LOG_INFO_ENABLED = str(getattr(settings, "ENV", "")).lower() in {"prod", "production"}
+
+
+def _info(msg: str):
+    if _LOG_INFO_ENABLED:
+        logger.info(msg)
+
+
+def _warning(msg: str):
+    if _LOG_INFO_ENABLED:
+        logger.warning(msg)
+
+
+def _error(msg: str):
+    # Always keep errors visible
+    logger.error(msg)
+
+
+# Ensure table logs only once per process
+_TABLE_READY = False
 
 
 # ============================================================
@@ -33,6 +59,7 @@ logger = get_logger(__name__)
 # ============================================================
 async def ensure_table():
     """Create required table + add missing columns safely."""
+    global _TABLE_READY
     pool = await get_pool()
 
     async with pool.acquire() as conn:
@@ -65,7 +92,10 @@ async def ensure_table():
             ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
         """)
 
-    logger.info("🟢 DB migrations OK — truck_groups ready.")
+    # ✅ only log this once, and only in prod
+    if not _TABLE_READY:
+        _info("DB ready: truck_groups")
+        _TABLE_READY = True
 
 
 # ============================================================
@@ -89,7 +119,8 @@ async def upsert_mapping(
         - never deletes groups automatically
     """
     if not chat_id:
-        logger.warning("⚠️ upsert_mapping called with empty chat_id!")
+        # ✅ no warnings in dev, only prod
+        _warning("upsert_mapping called with empty chat_id")
         return
 
     await ensure_table()
@@ -99,6 +130,12 @@ async def upsert_mapping(
 
     async with pool.acquire() as conn:
         try:
+            # ✅ Read current mapping to avoid spam logging
+            existing = await conn.fetchrow(
+                "SELECT chat_id FROM truck_groups WHERE unit=$1",
+                unit_val
+            )
+
             await conn.execute(
                 """
                 INSERT INTO truck_groups
@@ -118,12 +155,14 @@ async def upsert_mapping(
                 phone_number,
             )
 
-            logger.info(
-                f"🔄 UPSERT OK — {unit_val} → chat {chat_id} | driver={driver_name}, phone={phone_number}"
-            )
+            # ✅ Log ONLY important events (prod only)
+            if not existing:
+                _info(f"Linked: {unit_val} -> {chat_id}")
+            elif int(existing["chat_id"]) != int(chat_id):
+                _warning(f"Relinked: {unit_val} {existing['chat_id']} -> {chat_id}")
 
         except Exception as e:
-            logger.error(f"💥 UPSERT FAILED: {e}")
+            _error(f"UPSERT FAILED for unit={unit_val}, chat={chat_id}: {e}")
 
 
 # ============================================================
@@ -182,9 +221,10 @@ async def unlink_chat(chat_id: int):
     async with pool.acquire() as conn:
         try:
             res = await conn.execute("DELETE FROM truck_groups WHERE chat_id=$1", chat_id)
-            logger.info(f"🗑️ Manual unlink → chat={chat_id} ({res})")
+            # ✅ short + prod only
+            _info(f"Unlinked chat={chat_id} ({res})")
         except Exception as e:
-            logger.error(f"❌ unlink_chat FAILED: {e}")
+            _error(f"unlink_chat FAILED for chat={chat_id}: {e}")
 
 
 # ============================================================
@@ -219,7 +259,8 @@ async def verify_all_mappings():
             else:
                 seen_units.add(r["unit"])
 
-        logger.info(f"🧠 Mapping Sanity Check → {report}")
+        # ✅ keep but make it non-flooding (prod only)
+        _info(f"SanityCheck: {report}")
         return report
 
 
@@ -230,6 +271,7 @@ async def close_pool():
     pool = await get_pool()
     try:
         await pool.close()
-        logger.info("🟡 DB pool closed safely.")
+        # ✅ prod only
+        _info("DB pool closed")
     except Exception as e:
-        logger.error(f"❌ db close failed: {e}")
+        _error(f"db close failed: {e}")
