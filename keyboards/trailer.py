@@ -2,6 +2,8 @@ import os
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from config.settings import settings
+from utils.parsers import _normalize
+
 
 # --------------------------------------------------
 # PATHS
@@ -18,18 +20,29 @@ INSP_DIR = os.path.join(TRAILER_BASE, "annualinspection_2025")
 # --------------------------------------------------
 def find_pdf(directory: str, unit: str) -> str | None:
     """
-    Returns full PDF path if exists, otherwise None.
+    Return full PDF path if a matching file exists, otherwise None.
+
+    Matching rules:
+    - Case-insensitive
+    - Ignores spaces
+    - Trailer unit must be a PREFIX of the filename
     """
-    if not os.path.exists(directory):
+    if not directory or not os.path.exists(directory):
         return None
 
-    unit_clean = unit.upper().replace(" ", "")
-    for filename in os.listdir(directory):
-        if not filename.lower().endswith(".pdf"):
-            continue
+    unit_key = _normalize(unit)
 
-        if filename.upper().replace(" ", "").startswith(unit_clean):
-            return os.path.join(directory, filename)
+    try:
+        for filename in os.listdir(directory):
+            if not filename.lower().endswith(".pdf"):
+                continue
+
+            file_key = _normalize(filename)
+            if file_key.startswith(unit_key):
+                return os.path.join(directory, filename)
+    except OSError:
+        # Directory access issue – fail safely
+        return None
 
     return None
 
@@ -38,6 +51,9 @@ def find_pdf(directory: str, unit: str) -> str | None:
 # MAIN TRAILER MENU (STATIC)
 # --------------------------------------------------
 def trailer_menu_kb() -> InlineKeyboardMarkup:
+    """
+    Static trailer menu.
+    """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📘 INTRODUCTION", callback_data="trailer:intro")],
@@ -53,30 +69,32 @@ def trailer_menu_kb() -> InlineKeyboardMarkup:
 # --------------------------------------------------
 def trailer_file_kb(unit: str) -> InlineKeyboardMarkup:
     """
-    Builds trailer file buttons dynamically.
+    Builds trailer document buttons dynamically.
+
+    Rules:
     - Registration button is ALWAYS shown
     - Inspection button is shown ONLY if inspection PDF exists
     """
+    unit_clean = unit.strip().upper()
     buttons: list[list[InlineKeyboardButton]] = []
 
-    # --- REGISTRATION (always available) ---
+    # --- REGISTRATION (always visible) ---
     buttons.append(
         [
             InlineKeyboardButton(
                 text="📄 REGISTRATION PDF",
-                callback_data=f"tr_pdf:{unit}:reg",
+                callback_data=f"tr_pdf:{unit_clean}:reg",
             )
         ]
     )
 
     # --- INSPECTION (only if file exists) ---
-    inspection_pdf = find_pdf(INSP_DIR, unit)
-    if inspection_pdf:
+    if find_pdf(INSP_DIR, unit_clean):
         buttons.append(
             [
                 InlineKeyboardButton(
                     text="🧾 INSPECTION PDF",
-                    callback_data=f"tr_pdf:{unit}:insp",
+                    callback_data=f"tr_pdf:{unit_clean}:insp",
                 )
             ]
         )
