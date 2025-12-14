@@ -444,7 +444,7 @@ async def show_pm_vehicle_details(cb: CallbackQuery):
                 reply_markup=get_pm_services_menu(),
                 parse_mode="Markdown",
             )
-        except:
+        except Exception:
             await cb.answer("❌ Error loading details", show_alert=True)
 
 

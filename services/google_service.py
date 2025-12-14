@@ -230,8 +230,8 @@ class GoogleTrailerService:
         for i in range(2, len(rows)):  # row 3+
             row = rows[i]
 
-            def cell(idx):
-                return row[idx].strip() if idx < len(row) else ""
+            def cell(idx, r=row):
+                return r[idx].strip() if idx < len(r) else ""
 
             trailer = cell(trailer_col)
             if not trailer:

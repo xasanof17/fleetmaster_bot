@@ -151,9 +151,8 @@ class GoogleOpsService:
     async def get_summary(self) -> dict[str, Any]:
         global _CACHE
 
-        if _CACHE["data"] and _CACHE["time"]:
-            if datetime.now() - _CACHE["time"] < _CACHE_TTL:
-                return _CACHE["data"]
+        if _CACHE["data"] and _CACHE["time"] and datetime.now() - _CACHE["time"] < _CACHE_TTL:
+            return _CACHE["data"]
 
         data = await _read_all_sections()
         stats = data["stats"]

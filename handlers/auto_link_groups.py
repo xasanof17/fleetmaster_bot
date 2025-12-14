@@ -18,6 +18,7 @@ FleetMaster — Unified Auto-Link Engine
 import asyncio
 import re
 import time
+from contextlib import suppress
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
@@ -95,10 +96,8 @@ async def _notify_admins(text: str):
     bot = Bot(settings.TELEGRAM_BOT_TOKEN)
 
     for admin in ADMINS:
-        try:
+        with suppress(Exception):
             await bot.send_message(admin, text, parse_mode="Markdown")
-        except Exception:
-            pass
 
 
 # ─────────────────────────────────────────────

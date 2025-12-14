@@ -73,7 +73,7 @@ async def cmd_bychat(msg: Message):
 
     try:
         chat_id = int(args[1])
-    except:
+    except (IndexError, ValueError):
         return await msg.answer("❌ Chat ID must be an integer.")
 
     rec = await get_group_by_chat(chat_id)
