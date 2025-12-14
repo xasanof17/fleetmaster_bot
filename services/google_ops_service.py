@@ -6,125 +6,148 @@ from gspread_asyncio import AsyncioGspreadClientManager
 
 from config import settings
 
-# ── Environment ──────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# Environment
+# ─────────────────────────────────────────────
 GOOGLE_CREDS_JSON = settings.GOOGLE_CREDS_JSON
 OPS_SPREADSHEET_NAME = settings.OPS_SPREADSHEET_NAME
 OPS_WORKSHEET_NAME = settings.OPS_WORKSHEET_NAME
 
-
 # Cache
-_CACHE = {"data": None, "time": None}
+_CACHE: dict[str, Any] = {"data": None, "time": None}
 _CACHE_TTL = timedelta(minutes=5)
 
 
-# ── Google Auth ──────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# Google Auth
+# ─────────────────────────────────────────────
 def _get_creds():
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
     ]
-    info = settings.GOOGLE_CREDS_JSON or {}
+    info = GOOGLE_CREDS_JSON or {}
     return Credentials.from_service_account_info(info, scopes=scopes)
 
 
 _manager = AsyncioGspreadClientManager(_get_creds)
 
 
-# ── Helpers ──────────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────
 def _today() -> str:
-    import datetime
-
-    print("DEBUG DATETIME =", datetime)
-    return datetime.datetime.now().strftime("%m/%d/%Y")
+    return datetime.now().strftime("%m/%d/%Y")
 
 
+# ─────────────────────────────────────────────
+# Sheet Reader
+# ─────────────────────────────────────────────
 async def _read_all_sections() -> dict[str, Any]:
     agcm = await _manager.authorize()
     ss = await agcm.open(OPS_SPREADSHEET_NAME)
     ws = await ss.worksheet(OPS_WORKSHEET_NAME)
 
     all_vals = await ws.get_all_values()
-    if len(all_vals) < 3:
-        return {"stats": {}, "fleet_rows": [], "broken_road": [], "side_tow": [], "side_owner": []}
+    if len(all_vals) < 6:
+        return {
+            "stats": {},
+            "fleet_rows": [],
+            "broken_road": [],
+            "side_tow": [],
+            "side_owner": [],
+        }
 
-    # Top stats (first row)
+    # ── Top stats (row 1)
     stats: dict[str, str] = {}
     for cell in all_vals[0]:
         if ":" in cell:
             k, v = cell.split(":", 1)
             stats[k.strip().upper()] = v.strip()
 
-    # Find “Broken on the Road” start
-    second_table_idx = None
+    # ── Find "Broken on the Road" table
+    broken_start = None
     for idx, row in enumerate(all_vals):
         if any("Broken on the Road" in c for c in row):
-            second_table_idx = idx
+            broken_start = idx
             break
 
-    # Fleet rows
-    fleet_end = second_table_idx if second_table_idx else len(all_vals)
-    headers_main = [h.strip() or f"COL{i}" for i, h in enumerate(all_vals[1])]
+    # ── Fleet table
+    fleet_end = broken_start if broken_start else len(all_vals)
+    headers = [h.strip() or f"COL{i}" for i, h in enumerate(all_vals[2])]
     fleet_rows = [
-        {headers_main[i]: (row[i] if i < len(row) else "") for i in range(len(headers_main))}
-        for row in all_vals[2:fleet_end]
+        {headers[i]: (row[i] if i < len(row) else "") for i in range(len(headers))}
+        for row in all_vals[3:fleet_end]
         if any(cell.strip() for cell in row)
     ]
 
-    # Broken-road rows
-    broken_road_rows: list[dict[str, str]] = []
-    if second_table_idx is not None and second_table_idx + 1 < len(all_vals):
-        headers_br = [h.strip() or f"COL{i}" for i, h in enumerate(all_vals[second_table_idx + 1])]
-        broken_road_rows = [
-            {headers_br[i]: (row[i] if i < len(row) else "") for i in range(len(headers_br))}
-            for row in all_vals[second_table_idx + 2 :]
-            if any(cell.strip() for cell in row)
+    # ── Broken on the road table
+    broken_road = []
+    if broken_start is not None and broken_start + 2 < len(all_vals):
+        br_headers = [
+            h.strip() or f"COL{i}"
+            for i, h in enumerate(all_vals[broken_start + 1])
         ]
+        for row in all_vals[broken_start + 2 :]:
+            if not any(cell.strip() for cell in row):
+                continue
+            broken_road.append(
+                {
+                    br_headers[i]: (row[i] if i < len(row) else "")
+                    for i in range(len(br_headers))
+                }
+            )
 
-    # Tow & Owner
-    side_tow, side_owner = [], []
-    for row in all_vals[3:]:
-        if len(row) > 16:
-            num = (row[15] or "").strip()
-            name = (row[16] or "").strip()
-            if (num or name) and num.lower() != "tow truck":
-                side_tow.append(f"{num} - _{name}_" if name else num)
-        if len(row) > 18:
-            num = (row[17] or "").strip()
-            name = (row[18] or "").strip()
-            if (num or name) and num.lower() != "owner":
-                side_owner.append(f"{num} - _{name}_" if name else num)
+    # ─────────────────────────────────────────
+    # SIDE TABLES (O6:P = Tow, Q6:R = Owner)
+    # ─────────────────────────────────────────
+    side_tow: list[str] = []
+    side_owner: list[str] = []
+
+    # Start from row 6 (index 5)
+    for row in all_vals[5:]:
+        # Tow Truck → O (14), P (15)
+        if len(row) > 15:
+            tow_unit = (row[14] or "").strip()
+            tow_name = (row[15] or "").strip()
+            if tow_unit and tow_name:
+                side_tow.append(f"{tow_unit} - {tow_name} ( Tow Truck )")
+
+        # Owner Operator → Q (16), R (17)
+        if len(row) > 17:
+            owner_unit = (row[16] or "").strip()
+            owner_name = (row[17] or "").strip()
+            if owner_unit and owner_name:
+                side_owner.append(f"{owner_unit} - {owner_name} ( Owner )")
 
     return {
         "stats": stats,
         "fleet_rows": fleet_rows,
-        "broken_road": broken_road_rows,
+        "broken_road": broken_road,
         "side_tow": side_tow,
         "side_owner": side_owner,
     }
 
 
-# ── Public API ───────────────────────────────────────────────
-# services/google_ops_service.py
+# ─────────────────────────────────────────────
+# Public API
+# ─────────────────────────────────────────────
 async def get_data_for_vehicle_info(unit: str) -> dict[str, str]:
-    """
-    Returns {'status': str, 'driver': str} for the given truck number.
-    Reads row 3 as header and data from row 4 onward.
-    """
     agcm = await _manager.authorize()
     ss = await agcm.open(OPS_SPREADSHEET_NAME)
     ws = await ss.worksheet(OPS_WORKSHEET_NAME)
 
-    # Grab all rows, skip the first two banner rows
     all_vals = await ws.get_all_values()
     if len(all_vals) < 4:
         return {"status": "N/A", "driver": "N/A"}
 
-    headers = [h.strip() for h in all_vals[2]]  # row 3 is the real header
-    data_rows = all_vals[3:]  # from row 4 down
-
-    for row in data_rows:
-        record = {headers[i]: row[i] if i < len(row) else "" for i in range(len(headers))}
-        if str(record.get("TRUCK NUMBER")).strip() == str(unit).strip():
+    headers = [h.strip() for h in all_vals[2]]
+    for row in all_vals[3:]:
+        record = {
+            headers[i]: (row[i] if i < len(row) else "")
+            for i in range(len(headers))
+        }
+        if str(record.get("TRUCK NUMBER", "")).strip() == str(unit).strip():
             return {
                 "status": record.get("CURRENT STATUS", "N/A") or "N/A",
                 "driver": record.get("DRIVER NAME", "N/A") or "N/A",
@@ -135,26 +158,22 @@ async def get_data_for_vehicle_info(unit: str) -> dict[str, str]:
 
 class GoogleOpsService:
     async def get_summary(self) -> dict[str, Any]:
-        """Reads OPS spreadsheet summary with caching and structured parsing."""
         global _CACHE
 
-        # ⚡ Use cached data if still valid
-        if _CACHE["data"] and _CACHE["time"] and datetime.now() - _CACHE["time"] < _CACHE_TTL:
-            return _CACHE["data"]
+        if _CACHE["data"] and _CACHE["time"]:
+            if datetime.now() - _CACHE["time"] < _CACHE_TTL:
+                return _CACHE["data"]
 
-        # Otherwise fetch fresh data
         data = await _read_all_sections()
-        stats = data.get("stats", {})
+        stats = data["stats"]
 
-        # Build broken-road list
-        road_lines = []
-        for r in data.get("broken_road", []):
+        broken_road_lines = []
+        for r in data["broken_road"]:
             truck = r.get("Trucks") or r.get("TRUCKS") or ""
             driver = r.get("Previous Driver") or r.get("PREVIOUS DRIVER") or ""
             if truck:
-                road_lines.append(f"{truck} - _{driver}_")
+                broken_road_lines.append(f"{truck} - _{driver}_")
 
-        # Helper to fetch safe numeric/stat values
         def g(k: str) -> str:
             return stats.get(k, "0")
 
@@ -167,19 +186,16 @@ class GoogleOpsService:
             "getting_ready": g("GETTING READY"),
             "accident": g("ACCIDENT"),
             "lost": g("TOTAL LOST"),
-            "tow_list": data.get("side_tow", []),
-            "owner_list": data.get("side_owner", []),
-            "broken_road": road_lines,
+            "tow_list": data["side_tow"],
+            "owner_list": data["side_owner"],
+            "broken_road": broken_road_lines,
         }
 
-        # 🧠 Cache result for faster refreshes
         _CACHE["data"] = summary
         _CACHE["time"] = datetime.now()
-
         return summary
 
     async def as_markdown(self) -> str:
-        """Return formatted fleet summary in Markdown style for Telegram."""
         d = await self.get_summary()
 
         tow_lines = "\n".join(d["tow_list"]) or "None"
@@ -208,5 +224,5 @@ class GoogleOpsService:
         )
 
 
-# Singleton export
+# Singleton
 google_ops_service = GoogleOpsService()
