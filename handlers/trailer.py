@@ -2,7 +2,13 @@ import os
 import re
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, FSInputFile, Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    CallbackQuery,
+    FSInputFile,
+    Message,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -27,6 +33,7 @@ INSP_DIR = os.path.join(TRAILER_BASE, "annualinspection_2025")
 # --------------------------------------------------
 STRONG_MATCH_SCORE = 250  # auto-open threshold
 
+
 # --------------------------------------------------
 # FSM
 # --------------------------------------------------
@@ -34,6 +41,7 @@ class TrailerFSM(StatesGroup):
     waiting_reg = State()
     waiting_insp = State()
     waiting_info = State()
+
 
 # --------------------------------------------------
 # HELPERS
@@ -61,11 +69,9 @@ def find_pdf(directory: str, unit: str):
 
 
 def suggestions_kb(trailers: list[str]) -> InlineKeyboardMarkup:
-    rows = [
-        [InlineKeyboardButton(text=t, callback_data=f"tr_pick:{t}")]
-        for t in trailers
-    ]
+    rows = [[InlineKeyboardButton(text=t, callback_data=f"tr_pick:{t}")] for t in trailers]
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
 
 # --------------------------------------------------
 # CANCEL (GLOBAL)
@@ -77,6 +83,7 @@ async def cancel_any(msg: Message, state: FSMContext):
         "❌ Action cancelled.\n\nChoose an option:",
         reply_markup=trailer_menu_kb(),
     )
+
 
 # --------------------------------------------------
 # MENU
@@ -91,11 +98,13 @@ async def trailer_menu(cb: CallbackQuery, state: FSMContext):
         parse_mode="Markdown",
     )
 
+
 @router.callback_query(F.data == "trailer:reg")
 async def trailer_reg(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
     await state.set_state(TrailerFSM.waiting_reg)
     await cb.message.answer("📄 Send trailer number:")
+
 
 @router.callback_query(F.data == "trailer:insp")
 async def trailer_insp(cb: CallbackQuery, state: FSMContext):
@@ -103,11 +112,13 @@ async def trailer_insp(cb: CallbackQuery, state: FSMContext):
     await state.set_state(TrailerFSM.waiting_insp)
     await cb.message.answer("🧾 Send trailer number:")
 
+
 @router.callback_query(F.data == "trailer:fullinfo")
 async def trailer_info(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
     await state.set_state(TrailerFSM.waiting_info)
     await cb.message.answer("ℹ️ Send trailer number:")
+
 
 # --------------------------------------------------
 # FULL INFORMATION (SMART SEARCH)
@@ -117,16 +128,20 @@ async def handle_info(msg: Message, state: FSMContext):
     raw = msg.text.strip()
     query = _normalize(raw)
 
-    if len(query) < 3:
-        await msg.answer("⚠️ Please enter at least 3 characters.\nOr use /cancel")
+    if len(query) < 2:
+        await msg.answer("⚠️ Please enter at least 2 characters.\nOr use /cancel")
         return
 
     trailers = await google_trailer_service.load_all_trailers()
 
-    # 1️⃣ Exact
+    # 1️⃣ Exact match
     info = await google_trailer_service.build_trailer_template(raw)
     if info:
-        await msg.answer(info, parse_mode="Markdown", reply_markup=trailer_file_kb(raw))
+        await msg.answer(
+            info,
+            parse_mode="Markdown",
+            reply_markup=trailer_file_kb(raw),
+        )
         return
 
     # 2️⃣ Score all trailers
@@ -137,13 +152,13 @@ async def handle_info(msg: Message, state: FSMContext):
             scored.append((score, data["trailer"]))
 
     if not scored:
-        await msg.answer("❌ No matching trailer found.\nTry again or /cancel")
+        await msg.answer("🤔 No close matches yet.\nTry typing a bit more or /cancel")
         return
 
     scored.sort(reverse=True)
     best_score, best_trailer = scored[0]
 
-    # 3️⃣ Auto-open if confident
+    # 3️⃣ Auto-open if strong
     if best_score >= STRONG_MATCH_SCORE:
         info = await google_trailer_service.build_trailer_template(best_trailer)
         await msg.answer(
@@ -153,13 +168,14 @@ async def handle_info(msg: Message, state: FSMContext):
         )
         return
 
-    # 4️⃣ Suggestions (clickable)
+    # 4️⃣ Suggestions
     suggestions = [t for _, t in scored[:6]]
     await msg.answer(
         "🤔 *Did you mean one of these?*",
         parse_mode="Markdown",
         reply_markup=suggestions_kb(suggestions),
     )
+
 
 # --------------------------------------------------
 # PICK FROM SUGGESTIONS
@@ -179,6 +195,7 @@ async def pick_trailer(cb: CallbackQuery):
         parse_mode="Markdown",
         reply_markup=trailer_file_kb(trailer),
     )
+
 
 # --------------------------------------------------
 # PDF BUTTON HANDLER

@@ -280,12 +280,15 @@ class GoogleTrailerService:
 
     # --------------------------------------------------
     def _query_allowed(self, q: str) -> bool:
-        """Minimum 3 chars OR 3 digits"""
-        if len(q) < 3:
+        q = q.strip()
+        if len(q) < 2:
             return False
-        digits = sum(c.isdigit() for c in q)
-        letters = sum(c.isalpha() for c in q)
-        return digits >= 3 or letters >= 3
+
+        # must contain at least one letter or digit
+        has_letter = any(c.isalpha() for c in q)
+        has_digit = any(c.isdigit() for c in q)
+
+        return has_letter or has_digit
 
     # --------------------------------------------------
     def fuzzy_score(self, query: str, data: dict) -> int:
@@ -343,7 +346,7 @@ class GoogleTrailerService:
         scored = []
         for data in trailers.values():
             s = self.fuzzy_score(q, data)
-            if s >= 80:  # strong matches only
+            if s >= 50:  # strong matches only
                 scored.append((s, data["trailer"]))
 
         scored.sort(reverse=True)
