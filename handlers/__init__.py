@@ -6,7 +6,6 @@ Centralized router registration for all bot handlers (CLEAN VERSION)
 from aiogram import Router
 
 from handlers.admin import router as admin_router
-from handlers.admin_refresh import router as admin_refresh_router
 from handlers.admin_tools import router as admin_tools_router
 
 # Safe Auto-Link System (unit/driver/phone detection)
@@ -44,7 +43,6 @@ routers = [
     start_router,
     admin_router,
     admin_tools_router,
-    admin_refresh_router,  # <— NOW IN CORRECT POSITION
     auto_link_router,  # <— always after admin tools
     pm_services_router,
     pm_trucker_router,
