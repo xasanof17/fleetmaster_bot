@@ -2,18 +2,18 @@ import os
 import re
 
 from aiogram import F, Router
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
     CallbackQuery,
     FSInputFile,
-    Message,
-    InlineKeyboardMarkup,
     InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
 )
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 
 from config.settings import settings
-from keyboards.trailer import trailer_menu_kb, trailer_file_kb
+from keyboards.trailer import trailer_file_kb, trailer_menu_kb
 from services.google_service import google_trailer_service
 from utils.parsers import _normalize
 

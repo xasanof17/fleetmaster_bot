@@ -84,18 +84,12 @@ async def _read_all_sections() -> dict[str, Any]:
     # ── Broken on the road table
     broken_road = []
     if broken_start is not None and broken_start + 2 < len(all_vals):
-        br_headers = [
-            h.strip() or f"COL{i}"
-            for i, h in enumerate(all_vals[broken_start + 1])
-        ]
+        br_headers = [h.strip() or f"COL{i}" for i, h in enumerate(all_vals[broken_start + 1])]
         for row in all_vals[broken_start + 2 :]:
             if not any(cell.strip() for cell in row):
                 continue
             broken_road.append(
-                {
-                    br_headers[i]: (row[i] if i < len(row) else "")
-                    for i in range(len(br_headers))
-                }
+                {br_headers[i]: (row[i] if i < len(row) else "") for i in range(len(br_headers))}
             )
 
     # ─────────────────────────────────────────
@@ -143,10 +137,7 @@ async def get_data_for_vehicle_info(unit: str) -> dict[str, str]:
 
     headers = [h.strip() for h in all_vals[2]]
     for row in all_vals[3:]:
-        record = {
-            headers[i]: (row[i] if i < len(row) else "")
-            for i in range(len(headers))
-        }
+        record = {headers[i]: (row[i] if i < len(row) else "") for i in range(len(headers))}
         if str(record.get("TRUCK NUMBER", "")).strip() == str(unit).strip():
             return {
                 "status": record.get("CURRENT STATUS", "N/A") or "N/A",

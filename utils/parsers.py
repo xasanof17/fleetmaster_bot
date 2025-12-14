@@ -37,6 +37,7 @@ _BLOCKED_DRIVER_WORDS = {
 # HELPERS
 # ─────────────────────────────────────────────
 
+
 def _strip_emoji(text: str) -> str:
     return re.sub(
         r"[\U0001F600-\U0001F64F"
@@ -109,6 +110,7 @@ def _extract_driver_from_tmp(tmp: str) -> str | None:
 # CORE PARSER (AUTHORITATIVE)
 # ─────────────────────────────────────────────
 
+
 def parse_title(title: str) -> dict:
     original = title or ""
     readable = _strip_emoji(original)
@@ -122,9 +124,7 @@ def parse_title(title: str) -> dict:
     else:
         # 2️⃣ fallback — earliest NON-phone 3–5 digit
         phone_match = PHONE_RE.search(original)
-        phone_digits = (
-            re.sub(r"\D", "", phone_match.group(1)) if phone_match else ""
-        )
+        phone_digits = re.sub(r"\D", "", phone_match.group(1)) if phone_match else ""
 
         candidates: list[tuple[int, str]] = []
         for m in UNIT_RE.finditer(readable):

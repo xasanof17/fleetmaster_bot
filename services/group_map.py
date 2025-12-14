@@ -17,8 +17,7 @@ This version:
 
 from __future__ import annotations
 
-from typing import Any, Optional
-from datetime import datetime, timezone
+from typing import Any
 
 from config.db import get_pool
 from config.settings import settings
@@ -128,15 +127,15 @@ async def ensure_table():
 # UPSERT MAPPING (BY CHAT_ID)
 # ============================================================
 async def upsert_mapping(
-    unit: Optional[str],
+    unit: str | None,
     chat_id: int,
     title: str,
-    driver_name: Optional[str] = None,
-    phone_number: Optional[str] = None,
+    driver_name: str | None = None,
+    phone_number: str | None = None,
     driver_is_new: bool = False,
     driver_status: str = "ACTIVE",
     active: bool = True,
-    raw_title: Optional[str] = None,
+    raw_title: str | None = None,
 ) -> dict[str, Any]:
     if not chat_id:
         _warning("upsert_mapping called with empty chat_id")

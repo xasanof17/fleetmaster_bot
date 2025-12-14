@@ -236,8 +236,7 @@ async def search_truck_number(msg: Message, state: FSMContext):
         file_path = find_document(truck_number, doc_type)
         if not file_path:
             await msg.answer(
-                f"❌ No document found for *{truck_number}*.\n"
-                f"Send another truck number or /cancel",
+                f"❌ No document found for *{truck_number}*.\nSend another truck number or /cancel",
                 parse_mode="Markdown",
             )
             return

@@ -246,9 +246,7 @@ async def process_vehicle_search(message: Message, state: FSMContext):
         if fast_results:
             await searching.edit_text(
                 text=f"⚡ **Fast results for '{query}'**:",
-                reply_markup=get_vehicles_list_keyboard(
-                    fast_results[:50], page=1, per_page=10
-                ),
+                reply_markup=get_vehicles_list_keyboard(fast_results[:50], page=1, per_page=10),
                 parse_mode="Markdown",
             )
             return

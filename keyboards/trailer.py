@@ -1,9 +1,9 @@
 import os
+
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from config.settings import settings
 from utils.parsers import _normalize
-
 
 # --------------------------------------------------
 # PATHS

@@ -16,9 +16,8 @@ FleetMaster — Unified Auto-Link Engine
 """
 
 import asyncio
-import time
 import re
-from typing import Optional, List, Tuple
+import time
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
@@ -40,7 +39,7 @@ ADMINS = set(settings.ADMINS or [])
 
 _LAST_TOUCH: dict[int, float] = {}
 _LAST_STATUS: dict[int, str] = {}
-_LAST_UNIT: dict[int, Optional[str]] = {}
+_LAST_UNIT: dict[int, str | None] = {}
 
 TOUCH_COOLDOWN_SEC = 60
 FAST_REFRESH_SEC = 120  # 2 min — REAL fast refresh
@@ -59,7 +58,7 @@ def _is_driver_new(title: str) -> bool:
     return "🔵" in (title or "")
 
 
-def _detect_driver_status(title: str, unit: Optional[str]) -> str:
+def _detect_driver_status(title: str, unit: str | None) -> str:
     t = (title or "").upper()
 
     if any(x in t for x in ("FIRED", "TERMINATED", "REMOVED", "❌")):
@@ -74,7 +73,7 @@ def _detect_driver_status(title: str, unit: Optional[str]) -> str:
     return "ACTIVE"
 
 
-def _extract_units_excluding_phone(title: str) -> List[str]:
+def _extract_units_excluding_phone(title: str) -> list[str]:
     """
     Extract 3–5 digit numbers that are NOT part of phone numbers.
     Fallback only — parser is authoritative.
@@ -121,11 +120,11 @@ async def sync_group(
     # ─────────────────────────────────────
     parsed = parse_title(title)
 
-    unit: Optional[str] = parsed.get("unit")
+    unit: str | None = parsed.get("unit")
     driver = parsed.get("driver")
     phone = parsed.get("phone")
 
-    issues: List[str] = []
+    issues: list[str] = []
 
     # ─────────────────────────────────────
     # 🛟 SAFE FALLBACK (ONLY IF PARSER FAILED)
