@@ -1,6 +1,5 @@
 """
 Bot initialization and lifecycle helpers for FleetMaster Bot
-Includes: create_bot, create_dispatcher, setup_bot_commands, on_startup, on_shutdown
 """
 
 from aiogram import Bot, Dispatcher
@@ -18,99 +17,69 @@ logger = get_logger("core.bot")
 
 
 def create_bot() -> Bot:
-    """Create and configure bot instance"""
-    logger.info("Creating Bot instance")
-    bot = Bot(
+    """Create and configure bot instance with default Markdown support"""
+    return Bot(
         token=settings.TELEGRAM_BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN),
     )
-    logger.info("Bot instance created")
-    return bot
 
 
 def create_dispatcher() -> Dispatcher:
-    """Create dispatcher and register routers from handlers"""
-    logger.info("Creating Dispatcher")
+    """Dispatcher setup with Middleware and Router inclusion"""
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
 
-    # ✅ attach middleware before including routers
+    # Attach guard middleware first
     dp.message.middleware(ChatGuardMiddleware())
     dp.callback_query.middleware(ChatGuardMiddleware())
 
-    # import routers (handlers/__init__.py exposes 'routers' list)
+    # Include all routers from handlers/__init__.py
     try:
         from handlers import routers
+
+        for r in routers:
+            dp.include_router(r)
     except Exception as e:
-        logger.error(f"Failed to import handlers.routers: {e}")
+        logger.error(f"Router import failed: {e}")
         raise
 
-    for r in routers:
-        dp.include_router(r)
-        logger.info(f"Included router: {getattr(r, 'name', getattr(r, '__name__', 'router'))}")
-    logger.info("Dispatcher ready")
     return dp
 
 
 async def setup_bot_commands(bot: Bot) -> None:
-    """Set bot menu commands (safe wrapper)"""
-    logger.info("Setting up bot commands")
+    """Menu commands setup"""
     commands = [
-        BotCommand(command="start", description="🚛 Start FleetMaster Bot"),
+        BotCommand(command="start", description="🚛 Start FleetMaster"),
+        BotCommand(command="status_summary", description="📊 Fleet Status"),
         BotCommand(command="help", description="❓ Get help"),
     ]
-    try:
-        await bot.set_my_commands(commands)
-        logger.info("Bot commands set")
-    except Exception as e:
-        logger.error(f"Failed to set bot commands: {e}")
+    await bot.set_my_commands(commands)
 
 
-async def on_startup(bot: Bot, dispatcher: Dispatcher | None = None) -> None:
-    logger.info("🚀 FleetMaster startup initiated.")
-    logger.info(f"ADMINS loaded: {settings.ADMINS}")
+async def on_startup(bot: Bot) -> None:
+    """Execution on bot boot"""
+    logger.info("🚀 FleetMaster starting up...")
 
-    try:
-        await setup_bot_commands(bot)
-    except Exception as e:
-        logger.error(f"Error while setting bot commands: {e}")
+    await setup_bot_commands(bot)
 
-    # Test Samsara API
-    try:
-        async with samsara_service as svc:
-            ok = await svc.test_connection()
-            if ok:
-                logger.info("Samsara API test succeeded during startup")
-            else:
-                logger.warning("Samsara API test failed during startup")
-    except Exception as e:
-        logger.error(f"Samsara test error during startup: {e}")
+    # Verify Samsara connectivity
+    async with samsara_service as svc:
+        if await svc.test_connection():
+            logger.info("✅ Samsara API: Connected")
+        else:
+            logger.warning("⚠️ Samsara API: Connection Failed")
 
-    try:
-        me = await bot.get_me()
-        logger.info(f"✅ Bot ready: @{getattr(me, 'username', 'unknown')}")
-    except Exception as e:
-        logger.error(f"Failed to get bot info on startup: {e}")
+    me = await bot.get_me()
+    logger.info(f"✅ Bot @{me.username} is active.")
 
 
-# ─────────────────────────────────────────────
-# SHUTDOWN HOOK
-# ─────────────────────────────────────────────
-async def on_shutdown(bot: Bot, dispatcher: Dispatcher | None = None) -> None:
-    """Clean shutdown and resource cleanup."""
-    logger.info("🛑 FleetMaster shutdown initiated...")
+async def on_shutdown(bot: Bot) -> None:
+    """Graceful shutdown sequence"""
+    logger.info("🛑 Shutdown sequence initiated...")
 
-    try:
-        samsara_service.clear_cache()
-        logger.info("🧹 Cleared Samsara cache.")
-    except Exception as e:
-        logger.warning(f"⚠️ Error clearing Samsara cache: {e}")
+    samsara_service.clear_cache()
 
-    try:
-        if hasattr(bot, "session") and bot.session:
-            await bot.session.close()
-            logger.info("🔒 Bot session closed.")
-    except Exception as e:
-        logger.error(f"❌ Error closing bot session: {e}")
+    if bot.session:
+        await bot.session.close()
 
-    logger.info("✅ Shutdown complete.")
+    logger.info("✅ Goodbye!")

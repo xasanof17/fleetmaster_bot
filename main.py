@@ -1,11 +1,5 @@
 """
 FleetMaster Bot — Clean App Entrypoint
-Handles:
-  • DB init
-  • Bot + Dispatcher creation
-  • Startup middlewares
-  • Optional background Samsara refresh
-  • Starts polling cleanly
 """
 
 import asyncio
@@ -39,15 +33,15 @@ async def init_db_with_retry(retries: int = 5, delay: int = 5):
 
 
 # =====================================================
-#  OPTIONAL: Samsara Background Polling
+#  Samsara Background Polling
 # =====================================================
 async def samsara_background_task(interval_hours: int = 1):
     """Refresh Samsara vehicle data every N hours."""
     logger.info(f"🌐 Samsara refresh task started ({interval_hours}h interval)")
     while True:
         try:
-            async with samsara_service as svc:
-                await svc.get_vehicles(use_cache=False)
+            # Note: The session is now managed by the context manager in _start()
+            await samsara_service.get_vehicles(use_cache=False)
             logger.info("🔁 Samsara vehicle data refreshed")
         except Exception as e:
             logger.error(f"⚠️ Samsara refresh error: {e}")
@@ -55,7 +49,7 @@ async def samsara_background_task(interval_hours: int = 1):
 
 
 # =====================================================
-#  Main Startup Function
+#  Main Startup Function (FIXED VERSION)
 # =====================================================
 async def _start():
     setup_logging()
@@ -67,21 +61,22 @@ async def _start():
     bot = create_bot()
     dp = create_dispatcher()
 
-    # START THE SESSION HERE AND KEEP IT OPEN
-    async with samsara_service as svc:
-        # 1. Bot startup (Internal tests)
-        await on_startup(bot, dp)
+    dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
 
-        # 2. Main script test
-        ok = await svc.test_connection()
-        logger.info("🌐 Samsara OK" if ok else "⚠️ Samsara test failed")
-
-        # 3. Start background task (It will now inherit the existing session)
+    # Use "_" if you don't need to call methods directly on the service object here
+    async with samsara_service as _:
+        # Start background task
         samsara_task = asyncio.create_task(samsara_background_task(1))
 
         try:
             logger.info("🚀 FleetMaster is LIVE")
-            await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
+            await bot.delete_webhook(drop_pending_updates=True)
+
+            # Start polling
+            await dp.start_polling(
+                bot, allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"]
+            )
         except Exception as e:
             logger.error(f"💀 Polling crash: {e}")
         finally:
@@ -89,19 +84,17 @@ async def _start():
             with contextlib.suppress(asyncio.CancelledError):
                 await samsara_task
 
-            await on_shutdown(bot, dp)
-            await bot.session.close()
+            logger.info("🛑 Polling stopped.")
 
-    # Session is now fully closed. Wait for Windows socket cleanup.
     await asyncio.sleep(0.5)
     logger.info("🛑 Shutdown complete.")
 
 
 # =====================================================
-#  Entrypoint
+#  Entrypoint (FIXED VERSION)
 # =====================================================
 if __name__ == "__main__":
-    try:
+    # Use suppress for a cleaner exit without try/except/pass blocks
+    with contextlib.suppress(KeyboardInterrupt, SystemExit):
         asyncio.run(_start())
-    except (KeyboardInterrupt, SystemExit):
         logger.info("🧹 Gracefully stopped FleetMaster bot.")
