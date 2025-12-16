@@ -24,31 +24,58 @@ class SamsaraService:
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
+
+        # Session State
         self.session: aiohttp.ClientSession | None = None
+        self._session_refs = 0  # Reference counter for nested usage
+        self._session_lock = asyncio.Lock()  # Prevent race conditions during init
+
+        # Cache State
         self._vehicle_cache: list[dict[str, Any]] | None = None
         self._cache_timestamp: datetime | None = None
         self._cache_duration = timedelta(minutes=3)
 
-        # background refresh loop
+        # Background Loop State
         self._running = False
         self._interval = 3600  # 1 hour
 
     # -----------------------------
-    # Context Management
+    # Context Management (Ref-Counted)
     # -----------------------------
     async def __aenter__(self):
-        connector = aiohttp.TCPConnector(limit=20, limit_per_host=10)
-        timeout = aiohttp.ClientTimeout(total=10, connect=3, sock_read=5)
-        self.session = aiohttp.ClientSession(
-            headers=self.headers, timeout=timeout, connector=connector
-        )
-        return self
+        """
+        Initializes the session if it doesn't exist, or reuses it.
+        Increments reference counter.
+        """
+        async with self._session_lock:
+            if self.session is None or self.session.closed:
+                connector = aiohttp.TCPConnector(limit=20, limit_per_host=10)
+                timeout = aiohttp.ClientTimeout(total=15, connect=5, sock_read=10)
+                self.session = aiohttp.ClientSession(
+                    headers=self.headers, timeout=timeout, connector=connector
+                )
+                logger.info("🔌 Created new Samsara session")
+
+            self._session_refs += 1
+            return self
 
     async def __aexit__(self, exc_type, exc, tb):
-        if self.session:
+        """
+        Decrements reference counter.
+        Only closes the session if refs == 0.
+        """
+        async with self._session_lock:
+            self._session_refs -= 1
+            if self._session_refs <= 0:
+                await self.close_session()
+
+    async def close_session(self):
+        """Force close the session."""
+        if self.session and not self.session.closed:
             await self.session.close()
-            self.session = None
             logger.info("🔒 Closed Samsara session")
+        self.session = None
+        self._session_refs = 0
 
     # -----------------------------
     # Internal Helpers
@@ -74,9 +101,12 @@ class SamsaraService:
         json: dict[str, Any] | None = None,
         max_retries: int = 2,
     ) -> dict[str, Any] | None:
-        if not self.session:
-            logger.error("Session not initialized. Use 'async with samsara_service'.")
-            return None
+        # Auto-connect if session is missing (Safety net)
+        if not self.session or self.session.closed:
+            logger.warning("Session missing/closed in _make_request. Attempting auto-connect.")
+            # This is a fallback; ideally caller uses 'async with'
+            async with self:
+                return await self._make_request(endpoint, method, params, json, max_retries)
 
         url = f"{self.base_url}{endpoint}"
 
@@ -92,7 +122,7 @@ class SamsaraService:
                         return None
 
                     if resp.status == 429 and attempt < max_retries:
-                        wait = 2**attempt
+                        wait = 2 ** (attempt + 1)  # Exponential backoff
                         logger.warning(f"Rate limited; retrying in {wait}s")
                         await asyncio.sleep(wait)
                         continue
@@ -128,6 +158,7 @@ class SamsaraService:
         while True:
             if cursor:
                 params["after"] = cursor
+
             result = await self._make_request(endpoint, params=params)
             if not result or "data" not in result:
                 break
@@ -156,6 +187,7 @@ class SamsaraService:
         if result and "data" in result:
             return result["data"]
 
+        # Fallback: Refresh list if not found
         vehicles = await self.get_vehicles(use_cache=False)
         for v in vehicles:
             if str(v.get("id")) == str(vehicle_id):
@@ -167,7 +199,9 @@ class SamsaraService:
     ) -> dict[str, dict[str, Any]]:
         params = {"types": "obdOdometerMeters"}
         if vehicle_ids:
+            # Join IDs safely
             params["vehicleIds"] = ",".join([str(x) for x in vehicle_ids][:50])
+
         result = await self._make_request("/fleet/vehicles/stats/feed", params=params)
 
         data: dict[str, dict[str, Any]] = {}
@@ -182,10 +216,14 @@ class SamsaraService:
                 continue
             series = s.get("obdOdometerMeters")
             meters, ts = parse_series_value_and_time(series)
+
             if meters is None:
                 continue
+
             miles = meters_to_miles(meters)
+            # Handle nested externalIds safely
             vin = s.get("externalIds", {}).get("samsara.vin") or s.get("vin")
+
             data[str(vid)] = {"vin": vin, "odometer": miles, "lastUpdated": ts}
         return data
 
@@ -223,14 +261,15 @@ class SamsaraService:
         return None
 
     # -----------------------------
-    # Vehicle Search & Detailed Info (ADDED)
+    # Vehicle Search & Detailed Info
     # -----------------------------
     async def search_vehicles(
         self, query: str, search_by: str = "name", limit: int = 50
     ) -> list[dict[str, Any]]:
         """
-        Search vehicles by name, VIN, or plate number using cached list.
+        Search vehicles by name, VIN, or plate number.
         """
+        # Always try cache first, but allow refresh if empty
         vehicles = await self.get_vehicles(use_cache=True)
         if not vehicles:
             logger.warning("No vehicles available for search.")
@@ -238,8 +277,10 @@ class SamsaraService:
 
         q = query.lower().strip()
         results = []
+
         for v in vehicles:
             name = (v.get("name") or "").lower()
+            # Safely get VIN from various possible locations
             vin = (v.get("vin") or v.get("externalIds", {}).get("samsara.vin", "")).lower()
             plate = (v.get("licensePlate") or "").lower()
 
@@ -265,6 +306,7 @@ class SamsaraService:
             return None
 
         try:
+            # Wrap odometer fetch in timeout to prevent hanging UI
             odos = await asyncio.wait_for(
                 self.get_vehicle_odometer_stats([vehicle_id]), timeout=6.0
             )
@@ -302,26 +344,30 @@ class SamsaraService:
     # -----------------------------
     async def run_forever(self):
         """
-        Continuously refresh vehicle cache (hourly by default).
-        Safe to run as a background task.
+        Continuously refresh vehicle cache.
+        Uses the shared session context properly.
         """
         if self._running:
-            logger.warning("⚠️ SamsaraService loop already running — skipping duplicate start")
+            logger.warning("⚠️ SamsaraService loop already running")
             return
 
         self._running = True
         logger.info("🔄 Starting Samsara auto-refresh loop")
 
         try:
+            # 'async with self' now safely increments ref count
             async with self:
                 while self._running:
                     try:
                         await self.get_vehicles(use_cache=False)
                         logger.info("✅ Refreshed vehicle cache successfully")
-                        # Place future alert/notification logic here
+                    except asyncio.CancelledError:
+                        raise
                     except Exception as e:
                         logger.error(f"💥 Error inside Samsara loop: {e}")
 
+                    # Sleep in small chunks to allow faster shutdown check?
+                    # Or just sleep:
                     await asyncio.sleep(self._interval)
 
         except asyncio.CancelledError:
@@ -330,8 +376,9 @@ class SamsaraService:
             logger.error(f"Critical Samsara loop crash: {e}")
         finally:
             self._running = False
-            await self.__aexit__(None, None, None)
-            logger.info("🔒 Samsara loop stopped and session closed")
+            # __aexit__ is called automatically by 'async with',
+            # decrementing the ref count.
+            logger.info("🔒 Samsara loop stopped")
 
 
 # =====================================================

@@ -9,6 +9,7 @@ Handles:
 """
 
 import asyncio
+import contextlib
 
 from config import settings
 from config.db import init_db
@@ -60,39 +61,40 @@ async def _start():
     setup_logging()
     settings.validate()
 
-    logger.info("🔌 Initializing PostgreSQL...")
     if not await init_db_with_retry():
-        logger.error("🚫 DB init failed. Exiting.")
         return
 
     bot = create_bot()
     dp = create_dispatcher()
 
-    # General startup
-    await on_startup(bot, dp)
+    # START THE SESSION HERE AND KEEP IT OPEN
+    async with samsara_service as svc:
+        # 1. Bot startup (Internal tests)
+        await on_startup(bot, dp)
 
-    # Test Samsara API
-    try:
-        async with samsara_service as svc:
-            ok = await svc.test_connection()
-            logger.info("🌐 Samsara OK" if ok else "⚠️ Samsara test failed")
-    except Exception as e:
-        logger.error(f"💥 Samsara startup test error: {e}")
+        # 2. Main script test
+        ok = await svc.test_connection()
+        logger.info("🌐 Samsara OK" if ok else "⚠️ Samsara test failed")
 
-    # OPTIONAL background Samsara polling task
-    samsara_task = asyncio.create_task(samsara_background_task(1))
+        # 3. Start background task (It will now inherit the existing session)
+        samsara_task = asyncio.create_task(samsara_background_task(1))
 
-    # Start bot
-    try:
-        logger.info("🚀 FleetMaster is LIVE — polling updates...")
-        await dp.start_polling(bot, allowed_updates=["message", "callback_query", "my_chat_member"])
-    except Exception as e:
-        logger.error(f"💀 Polling crash: {e}")
-    finally:
-        samsara_task.cancel()
-        await on_shutdown(bot, dp)
-        await bot.session.close()
-        logger.info("🛑 Shutdown complete.")
+        try:
+            logger.info("🚀 FleetMaster is LIVE")
+            await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
+        except Exception as e:
+            logger.error(f"💀 Polling crash: {e}")
+        finally:
+            samsara_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await samsara_task
+
+            await on_shutdown(bot, dp)
+            await bot.session.close()
+
+    # Session is now fully closed. Wait for Windows socket cleanup.
+    await asyncio.sleep(0.5)
+    logger.info("🛑 Shutdown complete.")
 
 
 # =====================================================
