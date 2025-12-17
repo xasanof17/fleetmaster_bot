@@ -7,6 +7,7 @@ Export commonly used utility functions
 import contextlib
 
 from utils.logger import get_logger, setup_logging
+from utils.mailer import send_verification_email
 
 # PM Formatter
 from utils.pm_formatter import format_pm_list, format_pm_vehicle_info
@@ -35,4 +36,5 @@ __all__ = [
     "build_live_location_message",
     "parse_series_value_and_time",
     "meters_to_miles",
+    "send_verification_email",
 ]

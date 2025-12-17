@@ -10,6 +10,7 @@ from handlers.auto_link_groups import router as auto_link_router
 from handlers.documents import router as documents_router
 from handlers.pm_services import router as pm_services_router
 from handlers.pm_trucker import router as pm_trucker_router
+from handlers.registration import router as registration_router
 from handlers.start import router as start_router
 from handlers.trailer import router as trailer_router
 
@@ -35,6 +36,7 @@ routers = [
     pm_trucker_router,
     documents_router,
     trailer_router,
+    registration_router,
     auto_link_router,  # Moved down to prevent intercepting specific commands
 ]
 

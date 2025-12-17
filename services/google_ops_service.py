@@ -11,7 +11,6 @@ from config import settings
 # ─────────────────────────────────────────────
 GOOGLE_CREDS_JSON = settings.GOOGLE_CREDS_JSON
 OPS_SPREADSHEET_NAME = settings.OPS_SPREADSHEET_NAME
-OPS_WORKSHEET_NAME = settings.OPS_WORKSHEET_NAME
 
 # Cache
 _CACHE: dict[str, Any] = {"data": None, "time": None}
@@ -46,7 +45,7 @@ def _today() -> str:
 async def _read_all_sections() -> dict[str, Any]:
     agcm = await _manager.authorize()
     ss = await agcm.open(OPS_SPREADSHEET_NAME)
-    ws = await ss.worksheet(OPS_WORKSHEET_NAME)
+    ws = await ss.worksheet(OPS_SPREADSHEET_NAME)
 
     all_vals = await ws.get_all_values()
     if len(all_vals) < 6:
@@ -129,7 +128,7 @@ async def _read_all_sections() -> dict[str, Any]:
 async def get_data_for_vehicle_info(unit: str) -> dict[str, str]:
     agcm = await _manager.authorize()
     ss = await agcm.open(OPS_SPREADSHEET_NAME)
-    ws = await ss.worksheet(OPS_WORKSHEET_NAME)
+    ws = await ss.worksheet(OPS_SPREADSHEET_NAME)
 
     all_vals = await ws.get_all_values()
     if len(all_vals) < 4:

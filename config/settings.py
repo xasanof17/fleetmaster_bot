@@ -39,6 +39,9 @@ class Settings:
     _admins_raw = os.getenv("ADMINS") or os.getenv("ADMIN", "")
     ADMINS: list[int] = [int(x) for x in re.findall(r"\d+", _admins_raw)]
 
+    SMTP_USER: str = os.getenv("SMTP_USER", "")
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+
     ALLOW_GROUPS: bool = _bool(os.getenv("ALLOW_GROUPS", "false"))
     BOT_PASSWORD: str = os.getenv("BOT_PASSWORD", "")
 
