@@ -39,17 +39,17 @@ class Settings:
     _admins_raw = os.getenv("ADMINS") or os.getenv("ADMIN", "")
     ADMINS: list[int] = [int(x) for x in re.findall(r"\d+", _admins_raw)]
 
-    SMTP_USER: str = os.getenv("SMTP_USER", "")
-    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
-
     ALLOW_GROUPS: bool = _bool(os.getenv("ALLOW_GROUPS", "false"))
     BOT_PASSWORD: str = os.getenv("BOT_PASSWORD", "")
 
     WEBHOOK_URL: str = os.getenv("WEBHOOK_URL", "")
     PORT: int = int(os.getenv("PORT", "8080"))
 
+    SMTP_USER: str = os.getenv("SMTP_USER", "")
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+
     # Google Sheets creds
-    GOOGLE_CREDS_JSON: dict[str, Any] = _json(os.getenv("GOOGLE_CREDS_JSON", ""), {}) or {}
+    GOOGLE_CREDS_JSON: str = _json(os.getenv("GOOGLE_CREDS_JSON", ""), {}) or {}
 
     OPS_SPREADSHEET_NAME: str = os.getenv("OPS_SPREADSHEET_NAME", "OPERATION DEPARTMENT")
     OPS_WORKSHEET_NAME: str = os.getenv("OPS_WORKSHEET_NAME", "OPERATIONS")
