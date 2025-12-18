@@ -20,6 +20,7 @@ router = Router()
 
 ADMINS = set(settings.ADMINS or [])
 
+
 # ============================================================
 # FSM — Registration
 # ============================================================
@@ -61,6 +62,7 @@ Select an option below to get started:
     await message.answer(
         welcome_text,
         reply_markup=get_main_menu_keyboard(),
+        parse_mode="Markdown",
     )
     logger.info(f"Welcome shown to user {message.from_user.id}")
 

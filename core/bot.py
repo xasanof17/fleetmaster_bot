@@ -22,10 +22,7 @@ logger = get_logger("core.bot")
 
 def create_bot() -> Bot:
     """Create and configure bot instance."""
-    return Bot(
-        token=settings.TELEGRAM_BOT_TOKEN,
-        default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN),
-    )
+    return Bot(token=settings.TELEGRAM_BOT_TOKEN)
 
 
 def create_dispatcher() -> Dispatcher:
