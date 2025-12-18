@@ -5,7 +5,6 @@ Configuration settings for FleetMaster Bot
 import json
 import os
 import re
-from typing import Any
 
 from dotenv import load_dotenv
 
