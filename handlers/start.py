@@ -20,7 +20,6 @@ router = Router()
 
 ADMINS = set(settings.ADMINS or [])
 
-
 # ============================================================
 # FSM — Registration
 # ============================================================
@@ -42,13 +41,26 @@ async def show_welcome(message: Message):
 
 Your comprehensive fleet management assistant powered by Samsara Cloud.
 
+🔹 **TRUCK INFORMATION** — View detailed vehicle information
+🔹 **PM SERVICES** — Track preventive maintenance, urgent oil changes, and service schedules
+🔹 **DOCUMENTS** — Access registrations, permits, lease agreements, and inspection records
+🔹 **Real-time Data** — Get up-to-date fleet info
+🔹 **Easy Navigation** — Simple button interface
+
+**Features:**
+📋 Vehicle details (VIN, Plate, Year, Name, Odometer)
+🛠 Preventive maintenance tracking and service alerts
+📂 Centralized document storage for fleet compliance
+🚛 Fleet overview and quick vehicle selection
+🔍 Search by Name, VIN, or Plate Number
+⚡ Fast caching for instant responses
+
 Select an option below to get started:
     """.strip()
 
     await message.answer(
         welcome_text,
         reply_markup=get_main_menu_keyboard(),
-        parse_mode="Markdown",
     )
     logger.info(f"Welcome shown to user {message.from_user.id}")
 
