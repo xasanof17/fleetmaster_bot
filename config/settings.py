@@ -57,6 +57,9 @@ class Settings:
     PM_TRAILERS_NAME: str = os.getenv("PM_TRAILERS_NAME", "TRAILER OWNERS")
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 
+    RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
+    EMAIL_FROM: str = os.getenv("EMAIL_FROM", "")
+
     # Backward compatible key
     FILES_BASE: str = os.getenv("FILES_BASE", os.getenv("FILEBASE", "files"))
 

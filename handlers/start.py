@@ -1,10 +1,10 @@
 """
 handlers/start.py
-FleetMaster — Entrance Logic (Custom Welcome + DB Auth)
-FINAL • STABLE • AIROGRAM v3 SAFE
+FleetMaster — Entrance Logic (MARKDOWN SAFE)
 """
 
 from aiogram import Router
+from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -38,29 +38,27 @@ class RegistrationStates(StatesGroup):
 # ============================================================
 async def show_welcome(message: Message) -> None:
     welcome_text = (
-        "🚛 **Welcome to FleetMaster Bot!**\n\n"
+        "🚛 *Welcome to FleetMaster Bot!*\n\n"
         "Your comprehensive fleet management assistant powered by Samsara Cloud.\n\n"
-        "🔹 **TRUCK INFORMATION** — View detailed vehicle information\n"
-        "🔹 **PM SERVICES** — Track preventive maintenance and service schedules\n"
-        "🔹 **DOCUMENTS** — Access registrations, permits, and inspection records\n"
-        "🔹 **Real-time Data** — Up-to-date fleet information\n"
-        "🔹 **Easy Navigation** — Simple button interface\n\n"
-        "**Features:**\n"
-        "📋 Vehicle details (VIN, Plate, Year, Odometer)\n"
-        "🛠 Preventive maintenance tracking\n"
-        "📂 Centralized compliance documents\n"
-        "🚛 Fleet overview and quick selection\n"
-        "🔍 Search by VIN, Plate, or Name\n"
-        "⚡ Fast cached responses\n\n"
+        "🔹 *TRUCK INFORMATION* — Vehicle details\n"
+        "🔹 *PM SERVICES* — Maintenance & service tracking\n"
+        "🔹 *DOCUMENTS* — Registrations & inspections\n"
+        "🔹 *Real-time Data*\n"
+        "🔹 *Easy Navigation*\n\n"
+        "*Features:*\n"
+        "📋 VIN, Plate, Year, Odometer\n"
+        "🛠 Maintenance alerts\n"
+        "📂 Compliance documents\n"
+        "🚛 Fleet overview\n"
+        "🔍 Search vehicles\n\n"
         "Select an option below to get started:"
     )
 
     await message.answer(
         welcome_text,
         reply_markup=get_main_menu_keyboard(),
+        parse_mode=ParseMode.MARKDOWN,
     )
-
-    logger.info(f"Welcome shown to user {message.from_user.id}")
 
 
 # ============================================================
@@ -71,79 +69,49 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     user_id = message.from_user.id
     logger.info(f"/start by user {user_id}")
 
-    # Always reset FSM on /start
     await state.clear()
 
-    # =========================
-    # ADMIN BYPASS
-    # =========================
+    # ADMIN
     if user_id in ADMINS:
         await show_welcome(message)
         return
 
     user = await get_user_by_id(user_id)
 
-    # =========================
-    # NEW USER → REGISTRATION
-    # =========================
+    # NEW USER
     if not user:
         await message.answer(
-            "🛡️ **FleetMaster Registration**\n\n"
-            "To access the Fleet Dashboard, you must register first.\n"
-            "Please enter your **Full Name**:"
+            "🛡️ *FleetMaster Registration*\n\n"
+            "To access the system, registration is required.\n"
+            "Please enter your *Full Name*:",
+            parse_mode=ParseMode.MARKDOWN,
         )
         await state.set_state(RegistrationStates.waiting_for_full_name)
         return
 
-    # =========================
-    # GMAIL NOT VERIFIED
-    # =========================
     if not user.get("is_verified"):
         await message.answer(
-            "📧 Your Gmail is not verified yet.\nPlease complete the verification process."
+            "📧 Your Gmail is not verified yet.\nPlease complete verification.",
+            parse_mode=ParseMode.MARKDOWN,
         )
         return
 
-    # =========================
-    # WAITING FOR ADMIN
-    # =========================
     if not user.get("is_approved"):
         await message.answer(
-            "⏳ Your account is verified and pending admin approval.\n"
-            "You will be notified once access is granted."
+            "⏳ Your account is pending admin approval.\nYou will be notified once approved.",
+            parse_mode=ParseMode.MARKDOWN,
         )
         return
 
-    # =========================
-    # DISABLED USER
-    # =========================
     if not user.get("active"):
-        await message.answer("🚫 Your access has been disabled by an admin.")
+        await message.answer(
+            "🚫 Your access has been disabled by an admin.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
         return
 
-    # =========================
-    # AUTHORIZED USER
-    # =========================
     await update_last_active(user_id)
     await show_welcome(message)
-
-
-# ============================================================
-# ACCESS CONTROL HELPER
-# ============================================================
-async def is_authorized(user_id: int) -> bool:
-    if user_id in ADMINS:
-        return True
-
-    user = await get_user_by_id(user_id)
-    if not user:
-        return False
-
-    return (
-        user.get("is_verified") is True
-        and user.get("is_approved") is True
-        and user.get("active") is True
-    )
 
 
 # ============================================================
@@ -151,12 +119,9 @@ async def is_authorized(user_id: int) -> bool:
 # ============================================================
 @router.callback_query(lambda c: c.data == "main_menu")
 async def show_main_menu_callback(callback: CallbackQuery) -> None:
-    if not await is_authorized(callback.from_user.id):
-        await callback.answer("🔒 Access Denied. Contact Admin.", show_alert=True)
-        return
-
     await callback.message.edit_text(
-        "🚛 **FleetMaster Dashboard**",
+        "🚛 *FleetMaster Dashboard*",
         reply_markup=get_main_menu_keyboard(),
+        parse_mode=ParseMode.MARKDOWN,
     )
     await callback.answer()
