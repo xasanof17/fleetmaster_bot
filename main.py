@@ -74,10 +74,13 @@ async def _start():
         except Exception as e:
             logger.error(f"💀 Polling crash: {e}")
         finally:
+            logger.info("🛑 Polling stopped.")
+
             samsara_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await samsara_task
-            logger.info("🛑 Polling stopped.")
+
+            await samsara_service.close_all()
 
 
 if __name__ == "__main__":

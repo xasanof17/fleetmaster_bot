@@ -29,6 +29,7 @@ def _json(v: str | None, default):
 class Settings:
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     SAMSARA_API_TOKEN: str = os.getenv("SAMSARA_API_TOKEN", "")
+    SAMSARA_API_TOKEN_2: str = os.getenv("SAMSARA_API_TOKEN_2", "")
     SAMSARA_BASE_URL: str = os.getenv("SAMSARA_BASE_URL", "https://api.samsara.com")
 
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()

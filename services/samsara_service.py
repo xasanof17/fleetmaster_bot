@@ -1,10 +1,10 @@
 """
-Samsara API service for FleetMaster Bot
-Centralised API logic, pagination, and background refresh loop.
+Samsara API Service for FleetMaster Bot
+Final Production Version: Multi-org, Background Refresh, and full PM_Trucker Compatibility.
 """
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from typing import Any
 
 import aiohttp
@@ -16,373 +16,320 @@ from utils.logger import get_logger
 logger = get_logger("services.samsara_service")
 
 
-class SamsaraService:
-    def __init__(self):
+# =====================================================
+# INTERNAL PER-ORG CLIENT
+# =====================================================
+class _SamsaraOrgClient:
+    def __init__(self, api_token: str, org_name: str):
+        self.org_name = org_name
         self.base_url = settings.SAMSARA_BASE_URL.rstrip("/")
         self.headers = {
-            "Authorization": f"Bearer {settings.SAMSARA_API_TOKEN}",
+            "Authorization": f"Bearer {api_token}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
 
-        # Session State
         self.session: aiohttp.ClientSession | None = None
-        self._session_refs = 0  # Reference counter for nested usage
-        self._session_lock = asyncio.Lock()  # Prevent race conditions during init
+        self._session_lock = asyncio.Lock()
 
-        # Cache State
-        self._vehicle_cache: list[dict[str, Any]] | None = None
+        self._vehicle_cache: list[dict[str, Any]] = []
         self._cache_timestamp: datetime | None = None
-        self._cache_duration = timedelta(minutes=3)
 
-        # Background Loop State
-        self._running = False
-        self._interval = 3600  # 1 hour
-
-    # -----------------------------
-    # Context Management (Ref-Counted)
-    # -----------------------------
-    async def __aenter__(self):
-        """
-        Initializes the session if it doesn't exist, or reuses it.
-        Increments reference counter.
-        """
+    async def open(self):
         async with self._session_lock:
-            if self.session is None or self.session.closed:
+            if not self.session or self.session.closed:
                 connector = aiohttp.TCPConnector(limit=20, limit_per_host=10)
-                timeout = aiohttp.ClientTimeout(total=15, connect=5, sock_read=10)
+                timeout = aiohttp.ClientTimeout(total=30, connect=5, sock_read=15)
                 self.session = aiohttp.ClientSession(
                     headers=self.headers, timeout=timeout, connector=connector
                 )
-                logger.info("🔌 Created new Samsara session")
+                logger.info(f"🔌 Session created for {self.org_name}")
 
-            self._session_refs += 1
-            return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        """
-        Decrements reference counter.
-        Only closes the session if refs == 0.
-        """
+    async def close(self):
         async with self._session_lock:
-            self._session_refs -= 1
-            if self._session_refs <= 0:
-                await self.close_session()
+            if self.session and not self.session.closed:
+                await self.session.close()
+                logger.info(f"🔒 Session closed for {self.org_name}")
+            self.session = None
 
-    async def close_session(self):
-        """Force close the session."""
-        if self.session and not self.session.closed:
-            await self.session.close()
-            logger.info("🔒 Closed Samsara session")
-        self.session = None
-        self._session_refs = 0
-
-    # -----------------------------
-    # Internal Helpers
-    # -----------------------------
-    def _is_cache_valid(self) -> bool:
-        if not self._vehicle_cache or not self._cache_timestamp:
-            return False
-        return datetime.utcnow() - self._cache_timestamp < self._cache_duration
-
-    def _cache_vehicles(self, vehicles: list[dict[str, Any]]) -> None:
-        self._vehicle_cache = vehicles
-        self._cache_timestamp = datetime.utcnow()
-        logger.info(f"🗃️ Cached {len(vehicles)} vehicles")
-
-    # -----------------------------
-    # Core Request Logic
-    # -----------------------------
-    async def _make_request(
-        self,
-        endpoint: str,
-        method: str = "GET",
-        params: dict[str, Any] | None = None,
-        json: dict[str, Any] | None = None,
-        max_retries: int = 2,
-    ) -> dict[str, Any] | None:
-        # Auto-connect if session is missing (Safety net)
+    async def request(self, endpoint: str, params: dict | None = None):
         if not self.session or self.session.closed:
-            logger.warning("Session missing/closed in _make_request. Attempting auto-connect.")
-            # This is a fallback; ideally caller uses 'async with'
-            async with self:
-                return await self._make_request(endpoint, method, params, json, max_retries)
+            await self.open()
+        try:
+            async with self.session.get(f"{self.base_url}{endpoint}", params=params) as r:
+                if r.status == 200:
+                    return await r.json()
+                logger.error(f"❌ {self.org_name} API Error {r.status}")
+                return None
+        except Exception as e:
+            logger.error(f"💥 {self.org_name} Connection Error: {e}")
+            return None
 
-        url = f"{self.base_url}{endpoint}"
-
-        for attempt in range(max_retries + 1):
-            try:
-                logger.debug(f"Request {method} {url} (attempt {attempt + 1})")
-                async with self.session.request(method, url, params=params, json=json) as resp:
-                    if resp.status == 200:
-                        return await resp.json()
-
-                    if resp.status in (401, 403):
-                        logger.error(f"🚫 Auth error ({resp.status})")
-                        return None
-
-                    if resp.status == 429 and attempt < max_retries:
-                        wait = 2 ** (attempt + 1)  # Exponential backoff
-                        logger.warning(f"Rate limited; retrying in {wait}s")
-                        await asyncio.sleep(wait)
-                        continue
-
-                    text = await resp.text()
-                    logger.error(f"API error {resp.status}: {text}")
-                    return None
-
-            except aiohttp.ClientError as e:
-                logger.error(f"Network error: {e}")
-            except Exception as e:
-                logger.error(f"Unexpected error: {e}")
-
-            if attempt < max_retries:
-                await asyncio.sleep(1)
-
-        return None
-
-    # -----------------------------
-    # Vehicle Operations
-    # -----------------------------
-    async def get_vehicles(self, use_cache: bool = True) -> list[dict[str, Any]]:
-        if use_cache and self._is_cache_valid() and self._vehicle_cache:
-            logger.debug("Returning vehicles from cache")
-            return self._vehicle_cache
-
-        logger.info("Fetching vehicles (paginated)")
+    async def fetch_all_vehicles(self) -> list[dict[str, Any]]:
         vehicles: list[dict[str, Any]] = []
-        params = {"types": "light_duty,medium_duty,heavy_duty"}
-        endpoint = "/fleet/vehicles"
         cursor = None
 
         while True:
+            params = {"types": "light_duty,medium_duty,heavy_duty"}
             if cursor:
                 params["after"] = cursor
 
-            result = await self._make_request(endpoint, params=params)
-            if not result or "data" not in result:
+            data = await self.request("/fleet/vehicles", params)
+            if not data or "data" not in data:
                 break
 
-            batch = result.get("data", [])
-            vehicles.extend(batch)
+            for v in data["data"]:
+                v["_org"] = self.org_name
+                vehicles.append(v)
 
-            pagination = result.get("pagination", {}) or {}
-            if not pagination.get("hasNextPage"):
+            pg = data.get("pagination", {})
+            if not pg.get("hasNextPage"):
                 break
 
-            cursor = pagination.get("endCursor")
-            if not cursor:
-                break
+            cursor = pg.get("endCursor")
 
-        self._cache_vehicles(vehicles)
+        self._vehicle_cache = vehicles
+        self._cache_timestamp = datetime.now(timezone.utc)
         return vehicles
 
-    async def get_vehicle_by_id(self, vehicle_id: str) -> dict[str, Any] | None:
-        if self._is_cache_valid() and self._vehicle_cache:
-            for v in self._vehicle_cache:
-                if str(v.get("id")) == str(vehicle_id):
-                    return v
 
-        result = await self._make_request(f"/fleet/vehicles/{vehicle_id}")
-        if result and "data" in result:
-            return result["data"]
+# =====================================================
+# PUBLIC SERVICE (FACADE)
+# =====================================================
+class SamsaraService:
+    def __init__(self):
+        self.orgs: list[_SamsaraOrgClient] = []
+        self._init_orgs()
 
-        # Fallback: Refresh list if not found
-        vehicles = await self.get_vehicles(use_cache=False)
+        self._session_refs = 0
+        self._session_lock = asyncio.Lock()
+
+        self._running = False
+        self._refresh_interval = 3600
+
+        # 🔑 global dedup memory
+        self._vehicle_org_hint: dict[str, str] = {}
+
+    def _init_orgs(self):
+        tokens = [
+            (getattr(settings, "SAMSARA_API_TOKEN", None), "ORG_1"),
+            (getattr(settings, "SAMSARA_API_TOKEN_2", None), "ORG_2"),
+        ]
+        for token, name in tokens:
+            if token:
+                self.orgs.append(_SamsaraOrgClient(token, name))
+
+    async def __aenter__(self):
+        async with self._session_lock:
+            if self._session_refs == 0:
+                await asyncio.gather(*[org.open() for org in self.orgs])
+            self._session_refs += 1
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        async with self._session_lock:
+            self._session_refs -= 1
+            if self._session_refs <= 0:
+                await self.close_all()
+
+    async def close_all(self):
+        await asyncio.gather(*[org.close() for org in self.orgs], return_exceptions=True)
+        logger.info("🛑 All Samsara sessions closed")
+
+    # =====================================================
+    # HELPERS
+    # =====================================================
+    def _vehicle_key(self, v: dict) -> str:
+        return (
+            (v.get("vin") or v.get("externalIds", {}).get("samsara.vin"))
+            or v.get("name")
+            or v.get("licensePlate")
+            or ""
+        ).lower()
+
+    # =====================================================
+    # DATA
+    # =====================================================
+    async def get_vehicles(self, use_cache: bool = True) -> list[dict]:
+        """
+        Always returns DEDUPLICATED vehicles across all orgs.
+        Dedup key: VIN > NAME > PLATE
+        """
+
+        vehicles: list[dict] = []
+
+        if use_cache:
+            for org in self.orgs:
+                vehicles.extend(org._vehicle_cache)
+        else:
+            results = await asyncio.gather(*[org.fetch_all_vehicles() for org in self.orgs])
+            for sub in results:
+                vehicles.extend(sub)
+
+        seen = set()
+        unique: list[dict] = []
+
         for v in vehicles:
-            if str(v.get("id")) == str(vehicle_id):
-                return v
-        return None
-
-    async def get_vehicle_odometer_stats(
-        self, vehicle_ids: list[str] | None = None
-    ) -> dict[str, dict[str, Any]]:
-        params = {"types": "obdOdometerMeters"}
-        if vehicle_ids:
-            # Join IDs safely
-            params["vehicleIds"] = ",".join([str(x) for x in vehicle_ids][:50])
-
-        result = await self._make_request("/fleet/vehicles/stats/feed", params=params)
-
-        data: dict[str, dict[str, Any]] = {}
-        if not result or "data" not in result:
-            logger.warning("No odometer data from API")
-            return data
-
-        stats = result["data"] or []
-        for s in stats:
-            vid = s.get("id")
-            if not vid:
+            key = self._vehicle_key(v)
+            if not key:
                 continue
-            series = s.get("obdOdometerMeters")
-            meters, ts = parse_series_value_and_time(series)
-
-            if meters is None:
+            if key in seen:
                 continue
 
-            miles = meters_to_miles(meters)
-            # Handle nested externalIds safely
-            vin = s.get("externalIds", {}).get("samsara.vin") or s.get("vin")
+            seen.add(key)
+            unique.append(v)
+            self._vehicle_org_hint[key] = v["_org"]
 
-            data[str(vid)] = {"vin": vin, "odometer": miles, "lastUpdated": ts}
-        return data
+        logger.warning(f"[DEDUP CHECK] vehicles before={len(vehicles)} after={len(unique)}")
 
-    async def get_vehicle_location(self, vehicle_id: str) -> dict[str, Any] | None:
-        params = {"types": "gps", "vehicleIds": str(vehicle_id)}
-        result = await self._make_request("/fleet/vehicles/stats/feed", params=params)
+        return unique
 
-        if not result or "data" not in result:
-            logger.warning(f"No GPS data for vehicle {vehicle_id}")
-            return None
-
-        for s in result.get("data", []):
-            if str(s.get("id")) != str(vehicle_id):
-                continue
-
-            gps_list = s.get("gps")
-            if not gps_list or not isinstance(gps_list, list):
-                continue
-
-            last = gps_list[-1]
-            lat = last.get("latitude")
-            lng = last.get("longitude")
-            ts = last.get("time") or last.get("timestamp")
-            address = last.get("reverseGeo", {}).get("formattedLocation")
-
-            if lat is not None and lng is not None:
-                return {
-                    "latitude": lat,
-                    "longitude": lng,
-                    "time": ts,
-                    "address": address,
-                }
-
-        logger.warning(f"No valid GPS found for vehicle {vehicle_id}")
-        return None
-
-    # -----------------------------
-    # Vehicle Search & Detailed Info
-    # -----------------------------
-    async def search_vehicles(
-        self, query: str, search_by: str = "name", limit: int = 50
-    ) -> list[dict[str, Any]]:
-        """
-        Search vehicles by name, VIN, or plate number.
-        """
-        # Always try cache first, but allow refresh if empty
+    async def get_vehicle_by_id(self, vehicle_id: str) -> dict | None:
         vehicles = await self.get_vehicles(use_cache=True)
-        if not vehicles:
-            logger.warning("No vehicles available for search.")
-            return []
+        return next((v for v in vehicles if str(v.get("id")) == str(vehicle_id)), None)
 
+    async def search_vehicles(
+        self, query: str, search_by: str = "all", limit: int = 50
+    ) -> list[dict]:
         q = query.lower().strip()
+        vehicles = await self.get_vehicles(use_cache=True)
+
+        seen = set()
         results = []
 
         for v in vehicles:
+            key = self._vehicle_key(v)
+            if not key or key in seen:
+                continue
+
             name = (v.get("name") or "").lower()
-            # Safely get VIN from various possible locations
             vin = (v.get("vin") or v.get("externalIds", {}).get("samsara.vin", "")).lower()
             plate = (v.get("licensePlate") or "").lower()
 
             if (
-                (search_by in ("name", "all") and q in name)
-                or (search_by in ("vin", "all") and q in vin)
-                or (search_by in ("plate", "all") and q in plate)
+                search_by == "name"
+                and q in name
+                or search_by == "vin"
+                and q in vin
+                or search_by == "plate"
+                and q in plate
+                or search_by == "all"
+                and (q in name or q in vin or q in plate)
             ):
+                seen.add(key)
                 results.append(v)
+                self._vehicle_org_hint[key] = v["_org"]
+
                 if len(results) >= limit:
                     break
 
-        logger.info(f"🔍 Search '{query}' matched {len(results)} vehicles")
         return results
 
-    async def get_vehicle_with_stats(self, vehicle_id: str) -> dict[str, Any] | None:
-        """
-        Return a vehicle with odometer + VIN + latest update timestamp.
-        """
+    # =====================================================
+    # STATS & LOCATION
+    # =====================================================
+    async def get_vehicle_with_stats(self, vehicle_id: str) -> dict | None:
         vehicle = await self.get_vehicle_by_id(vehicle_id)
         if not vehicle:
-            logger.warning(f"Vehicle {vehicle_id} not found.")
             return None
 
-        try:
-            # Wrap odometer fetch in timeout to prevent hanging UI
-            odos = await asyncio.wait_for(
-                self.get_vehicle_odometer_stats([vehicle_id]), timeout=6.0
-            )
-            odo = odos.get(str(vehicle_id))
-            if odo:
-                vehicle["odometer"] = odo.get("odometer")
-                vehicle["vin"] = odo.get("vin") or vehicle.get("vin")
-                vehicle["lastUpdated"] = odo.get("lastUpdated") or vehicle.get("updatedAt")
-        except asyncio.TimeoutError:
-            logger.warning(f"Odometer fetch for {vehicle_id} timed out.")
-        except Exception as e:
-            logger.error(f"Error while getting stats for {vehicle_id}: {e}")
+        client = next((o for o in self.orgs if o.org_name == vehicle["_org"]), None)
+        if not client:
+            return vehicle
+
+        stats = await client.request(
+            "/fleet/vehicles/stats/feed",
+            {"types": "obdOdometerMeters", "vehicleIds": vehicle_id},
+        )
+
+        if stats and stats.get("data"):
+            s = stats["data"][0]
+            meters, ts = parse_series_value_and_time(s.get("obdOdometerMeters"))
+            vehicle["odometer"] = meters_to_miles(meters) if meters else None
+            vehicle["lastUpdated"] = ts
 
         return vehicle
 
-    # -----------------------------
-    # General Utilities
-    # -----------------------------
-    def clear_cache(self) -> None:
-        self._vehicle_cache = None
-        self._cache_timestamp = None
-        logger.info("🧹 Cleared vehicle cache")
+    async def get_vehicle_location(self, vehicle_id: str) -> dict | None:
+        vehicle = await self.get_vehicle_by_id(vehicle_id)
+        if not vehicle:
+            return None
+
+        client = next((o for o in self.orgs if o.org_name == vehicle["_org"]), None)
+        if not client:
+            return None
+
+        result = await client.request(
+            "/fleet/vehicles/stats/feed",
+            {"types": "gps", "vehicleIds": vehicle_id},
+        )
+
+        if result and result.get("data"):
+            gps = result["data"][0].get("gps")
+            if gps:
+                last = gps[-1]
+                return {
+                    "latitude": last.get("latitude"),
+                    "longitude": last.get("longitude"),
+                    "address": last.get("reverseGeo", {}).get("formattedLocation"),
+                    "time": last.get("time") or last.get("timestamp"),
+                }
+
+        return None
 
     async def test_connection(self) -> bool:
-        r = await self._make_request("/fleet/vehicles", params={"limit": 1})
-        ok = r is not None
-        if ok:
-            logger.info("✅ Samsara connection OK")
-        else:
-            logger.error("❌ Samsara connection failed")
-        return ok
+        """
+        Compatibility method (old code expects it).
+        Returns True only if ALL orgs respond.
+        """
+        if not self.orgs:
+            logger.error("❌ No Samsara org tokens configured")
+            return False
 
-    # -----------------------------
-    # Background Loop
-    # -----------------------------
+        try:
+            async with self:
+                results = await asyncio.gather(
+                    *[org.request("/fleet/vehicles", {"limit": 1}) for org in self.orgs],
+                    return_exceptions=True,
+                )
+
+            ok = True
+            for org, r in zip(self.orgs, results, strict=False):
+                if isinstance(r, Exception) or r is None:
+                    logger.error(f"❌ Samsara connection FAILED [{org.org_name}]")
+                    ok = False
+                else:
+                    logger.info(f"✅ Samsara connection OK [{org.org_name}]")
+
+            return ok
+        except Exception as e:
+            logger.error(f"❌ Samsara test_connection crashed: {e}")
+            return False
+
+    # =====================================================
+    # BACKGROUND LOOP
+    # =====================================================
     async def run_forever(self):
-        """
-        Continuously refresh vehicle cache.
-        Uses the shared session context properly.
-        """
         if self._running:
-            logger.warning("⚠️ SamsaraService loop already running")
             return
 
         self._running = True
-        logger.info("🔄 Starting Samsara auto-refresh loop")
+        logger.info("🔄 Samsara Background Loop Started")
 
         try:
-            # 'async with self' now safely increments ref count
             async with self:
                 while self._running:
                     try:
                         await self.get_vehicles(use_cache=False)
-                        logger.info("✅ Refreshed vehicle cache successfully")
-                    except asyncio.CancelledError:
-                        raise
+                        logger.info("✅ Cache refreshed")
                     except Exception as e:
-                        logger.error(f"💥 Error inside Samsara loop: {e}")
-
-                    # Sleep in small chunks to allow faster shutdown check?
-                    # Or just sleep:
-                    await asyncio.sleep(self._interval)
-
-        except asyncio.CancelledError:
-            logger.info("🛑 SamsaraService loop cancelled gracefully")
-        except Exception as e:
-            logger.error(f"Critical Samsara loop crash: {e}")
+                        logger.error(f"💥 Refresh Error: {e}")
+                    await asyncio.sleep(self._refresh_interval)
         finally:
             self._running = False
-            # __aexit__ is called automatically by 'async with',
-            # decrementing the ref count.
-            logger.info("🔒 Samsara loop stopped")
 
 
 # =====================================================
-# Singleton instance for global import
+# SINGLETON
 # =====================================================
 samsara_service = SamsaraService()
-logger.info("✅ SamsaraService initialized successfully.")
