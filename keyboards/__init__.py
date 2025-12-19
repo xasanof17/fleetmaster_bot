@@ -2,6 +2,7 @@
 
 from .documents import documents_menu_kb
 from .main_menu import get_help_keyboard, get_main_menu_keyboard
+from .manage_users import manage_users_menu, user_action_kb
 from .pm_services import (
     get_calendar_keyboard,
     get_pm_search_keyboard,
@@ -45,4 +46,7 @@ __all__ = [
     # trailer
     "trailer_menu_kb",
     "trailer_file_kb",
+    # manage users
+    "manage_users_menu",
+    "user_action_kb",
 ]

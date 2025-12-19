@@ -152,3 +152,82 @@ async def update_last_active(user_id: int):
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute("UPDATE bot_users SET last_active_at=NOW() WHERE user_id=$1", user_id)
+
+
+# ============================================================
+# ADMIN QUERIES
+# ============================================================
+
+
+async def get_pending_users() -> list[dict]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT * FROM bot_users
+            WHERE is_verified=TRUE AND is_approved=FALSE
+            ORDER BY created_at ASC
+            """
+        )
+        return [dict(r) for r in rows]
+
+
+async def get_all_users(limit: int = 50) -> list[dict]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT * FROM bot_users
+            ORDER BY created_at DESC
+            LIMIT $1
+            """,
+            limit,
+        )
+        return [dict(r) for r in rows]
+
+
+async def set_user_active(user_id: int, active: bool):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE bot_users
+            SET active=$2, updated_at=NOW()
+            WHERE user_id=$1
+            """,
+            user_id,
+            active,
+        )
+
+
+async def search_users(query: str, limit: int, offset: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT * FROM bot_users
+            WHERE full_name ILIKE $1
+               OR nickname ILIKE $1
+            ORDER BY created_at DESC
+            LIMIT $2 OFFSET $3
+            """,
+            f"%{query}%",
+            limit,
+            offset,
+        )
+        return [dict(r) for r in rows]
+
+
+async def get_users_paginated(limit: int, offset: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT * FROM bot_users
+            ORDER BY created_at DESC
+            LIMIT $1 OFFSET $2
+            """,
+            limit,
+            offset,
+        )
+        return [dict(r) for r in rows]

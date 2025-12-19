@@ -56,7 +56,7 @@ async def show_welcome(message: Message) -> None:
 
     await message.answer(
         welcome_text,
-        reply_markup=get_main_menu_keyboard(),
+        reply_markup=get_main_menu_keyboard(user_id=message.from_user.id),
         parse_mode=ParseMode.MARKDOWN,
     )
 
@@ -121,7 +121,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
 async def show_main_menu_callback(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
         "🚛 *FleetMaster Dashboard*",
-        reply_markup=get_main_menu_keyboard(),
+        reply_markup=get_main_menu_keyboard(user_id=callback.from_user.id),
         parse_mode=ParseMode.MARKDOWN,
     )
     await callback.answer()

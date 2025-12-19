@@ -8,6 +8,7 @@ from handlers.admin_commands import router as admin_commands_router
 from handlers.admin_tools import router as admin_tools_router
 from handlers.auto_link_groups import router as auto_link_router
 from handlers.documents import router as documents_router
+from handlers.manage_users import router as manage_users_router
 from handlers.pm_services import router as pm_services_router
 from handlers.pm_trucker import router as pm_trucker_router
 from handlers.registration import router as registration_router
@@ -38,6 +39,7 @@ routers = [
     trailer_router,
     registration_router,
     auto_link_router,  # Moved down to prevent intercepting specific commands
+    manage_users_router,
 ]
 
 if HAS_SEARCH and search_router:
