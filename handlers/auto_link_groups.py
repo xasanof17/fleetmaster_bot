@@ -11,7 +11,7 @@ FleetMaster — Unified Auto-Link Engine (Stable)
 ✔ Startup recovery (silent)
 ✔ Smart periodic refresh (no spam)
 ✔ Session-safe notifications
-✔ Admin alerts ONLY on real transitions
+✔ Admin alerts ONLY ONCE per issue
 """
 
 import asyncio
@@ -34,7 +34,7 @@ logger = get_logger(__name__)
 ADMINS = set(settings.ADMINS or [])
 
 # ─────────────────────────────────────────────
-# INTERNAL STATE (SAFE & MINIMAL)
+# INTERNAL STATE
 # ─────────────────────────────────────────────
 
 _LAST_TOUCH: dict[int, float] = {}
@@ -42,17 +42,16 @@ _LAST_STATUS: dict[int, str] = {}
 _LAST_UNIT: dict[int, str | None] = {}
 _LAST_TITLE: dict[int, str] = {}
 
+# 🔒 ONE-TIME ISSUE MEMORY (PER CHAT)
+_REPORTED_ISSUES: dict[int, set[str]] = {}
+
 TOUCH_COOLDOWN_SEC = 60
-FAST_REFRESH_SEC = 120  # 2 minutes
+FAST_REFRESH_SEC = 120
 
 
 # ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────
-
-
-def _is_admin(uid: int) -> bool:
-    return uid in ADMINS
 
 
 def _is_driver_new(title: str) -> bool:
@@ -75,25 +74,19 @@ def _detect_driver_status(title: str, unit: str | None) -> str:
 
 
 def _extract_units_excluding_phone(title: str) -> list[str]:
-    """
-    Extract 3–5 digit numbers that are NOT part of phone numbers.
-    Fallback only — parser is authoritative.
-    """
     digits = re.findall(r"\b\d{3,5}\b", title or "")
     phone_digits = re.sub(r"\D", "", title or "")
-
     return [d for d in digits if d not in phone_digits]
 
 
 async def _notify_admins(bot, text: str):
-    """Uses existing bot instance — NO session leaks"""
     for admin in ADMINS:
         with suppress(Exception):
             await bot.send_message(admin, text, parse_mode="Markdown")
 
 
 # ─────────────────────────────────────────────
-# CORE SYNC (AUTHORITATIVE)
+# CORE SYNC
 # ─────────────────────────────────────────────
 
 
@@ -114,27 +107,36 @@ async def sync_group(
     issues: list[str] = []
 
     # ────────────────
-    # Fallback unit logic
+    # UNIT DETECTION
     # ────────────────
     if not unit:
         fallback_units = _extract_units_excluding_phone(title)
+
         if len(set(fallback_units)) > 1:
-            issues.append(f"Multiple units detected: {sorted(set(fallback_units))}")
+            issues.append("Multiple units detected")
+
         elif fallback_units:
             unit = fallback_units[0]
-            issues.append("Parser failed, fallback unit used")
+            issues.append("Parser fallback used")
+
         else:
             issues.append("Unit missing")
 
     # ────────────────
-    # Status detection
+    # PHONE CHECK
+    # ────────────────
+    if driver and not phone:
+        issues.append("Phone missing")
+
+    # ────────────────
+    # STATUS DETECTION
     # ────────────────
     status = _detect_driver_status(title, unit)
     prev_status = _LAST_STATUS.get(chat_id)
     prev_unit = _LAST_UNIT.get(chat_id)
 
     # ────────────────
-    # DB UPDATE (SOURCE OF TRUTH)
+    # DB UPDATE
     # ────────────────
     await upsert_mapping(
         unit=unit,
@@ -149,16 +151,8 @@ async def sync_group(
     )
 
     # ────────────────
-    # Memory update (AFTER DB success)
+    # TRANSITION ALERTS
     # ────────────────
-    _LAST_UNIT[chat_id] = unit
-    _LAST_STATUS[chat_id] = status
-    _LAST_TITLE[chat_id] = title
-
-    # ────────────────
-    # Notifications (ONLY real transitions)
-    # ────────────────
-
     if prev_unit and unit and prev_unit != unit:
         await _notify_admins(
             bot,
@@ -175,18 +169,45 @@ async def sync_group(
             f"{prev_status} → {status}",
         )
 
-    # Data integrity alerts ONLY on forced sync
-    if issues and force:
+    # ────────────────
+    # 🔒 ONE-TIME DATA ISSUE ALERTS
+    # ────────────────
+    reported = _REPORTED_ISSUES.setdefault(chat_id, set())
+    new_issues = [i for i in issues if i not in reported]
+
+    if new_issues and force:
         await _notify_admins(
             bot,
             f"🚨 **DATA ISSUE**\n"
             f"Chat: `{chat_id}`\n"
-            f"Title: `{title}`\n\n" + "\n".join(f"• {i}" for i in issues),
+            f"Title: `{title}`\n\n" + "\n".join(f"• {i}" for i in new_issues),
         )
+        reported.update(new_issues)
+
+    # ────────────────
+    # CLEAR FIXED ISSUES
+    # ────────────────
+    if unit:
+        reported.discard("Unit missing")
+        reported.discard("Parser fallback used")
+        reported.discard("Multiple units detected")
+
+    if phone:
+        reported.discard("Phone missing")
+
+    if not reported:
+        _REPORTED_ISSUES.pop(chat_id, None)
+
+    # ────────────────
+    # MEMORY UPDATE
+    # ────────────────
+    _LAST_UNIT[chat_id] = unit
+    _LAST_STATUS[chat_id] = status
+    _LAST_TITLE[chat_id] = title
 
 
 # ─────────────────────────────────────────────
-# STARTUP RECOVERY (SILENT)
+# STARTUP RECOVERY
 # ─────────────────────────────────────────────
 
 
@@ -202,7 +223,7 @@ async def startup_recovery(bot):
 
 
 # ─────────────────────────────────────────────
-# PERIODIC REFRESH (SMART)
+# PERIODIC REFRESH
 # ─────────────────────────────────────────────
 
 
@@ -216,13 +237,7 @@ async def periodic_refresh(bot):
             with suppress(Exception):
                 chat = await bot.get_chat(g["chat_id"])
                 if chat.title != _LAST_TITLE.get(chat.id):
-                    await sync_group(
-                        bot,
-                        chat.id,
-                        chat.title or "",
-                        active=True,
-                        force=False,
-                    )
+                    await sync_group(bot, chat.id, chat.title or "")
 
         await asyncio.sleep(FAST_REFRESH_SEC)
 
