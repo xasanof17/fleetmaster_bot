@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytz
 
@@ -9,25 +9,43 @@ from .vehicle_helpers import extract_odometer_miles
 DEFAULT_TZ = pytz.timezone("Asia/Tashkent")
 
 
-def format_timestamp(timestamp: str, tz: pytz.timezone = DEFAULT_TZ) -> str:
+def format_timestamp(
+    timestamp: str | datetime | None,
+    tz: pytz.timezone = DEFAULT_TZ,
+) -> str:
     """
-    Convert ISO timestamp (UTC) into given timezone (default Asia/Tashkent).
-    Format: DD.MM.YY HH:MM:SS
+    Convert timestamp into given timezone (default Asia/Tashkent).
+    Accepts ISO string OR datetime.
+    Output: DD.MM.YY HH:MM:SS
     """
     if not timestamp:
         return "Unknown time"
 
     try:
-        # parse UTC time from Samsara
-        dt_utc = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        # --------------------------------------------------
+        # Normalize input → datetime (UTC)
+        # --------------------------------------------------
+        if isinstance(timestamp, datetime):
+            dt = timestamp
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            # string input from Samsara
+            dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
 
-        # convert to target timezone
-        dt_local = dt_utc.astimezone(tz)
+        # --------------------------------------------------
+        # Convert to target timezone
+        # --------------------------------------------------
+        dt_local = dt.astimezone(tz)
 
-        # format output
+        # --------------------------------------------------
+        # Format cleanly (no microseconds)
+        # --------------------------------------------------
         return dt_local.strftime("%d.%m.%y %H:%M:%S")
+
     except Exception:
-        return timestamp
+        # last-resort safety (never break UI)
+        return "Unknown time"
 
 
 def format_odometer_mi(miles: int | None) -> str:

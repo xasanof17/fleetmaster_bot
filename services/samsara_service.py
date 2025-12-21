@@ -1,10 +1,10 @@
 """
 Samsara API Service for FleetMaster Bot
-Final Production Version: Multi-org, Background Refresh, and full PM_Trucker Compatibility.
+Final Stable Version — Multi-org, LIVE-only GPS, PM_Trucker compatible
 """
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import aiohttp
@@ -38,10 +38,10 @@ class _SamsaraOrgClient:
     async def open(self):
         async with self._session_lock:
             if not self.session or self.session.closed:
-                connector = aiohttp.TCPConnector(limit=20, limit_per_host=10)
-                timeout = aiohttp.ClientTimeout(total=30, connect=5, sock_read=15)
                 self.session = aiohttp.ClientSession(
-                    headers=self.headers, timeout=timeout, connector=connector
+                    headers=self.headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                    connector=aiohttp.TCPConnector(limit=20),
                 )
                 logger.info(f"🔌 Session created for {self.org_name}")
 
@@ -60,10 +60,9 @@ class _SamsaraOrgClient:
                 if r.status == 200:
                     return await r.json()
                 logger.error(f"❌ {self.org_name} API Error {r.status}")
-                return None
         except Exception as e:
-            logger.error(f"💥 {self.org_name} Connection Error: {e}")
-            return None
+            logger.error(f"💥 {self.org_name} request failed: {e}")
+        return None
 
     async def fetch_all_vehicles(self) -> list[dict[str, Any]]:
         vehicles: list[dict[str, Any]] = []
@@ -82,10 +81,9 @@ class _SamsaraOrgClient:
                 v["_org"] = self.org_name
                 vehicles.append(v)
 
-            pg = data.get("pagination", {})
+            pg = data.get("pagination") or {}
             if not pg.get("hasNextPage"):
                 break
-
             cursor = pg.get("endCursor")
 
         self._vehicle_cache = vehicles
@@ -94,9 +92,11 @@ class _SamsaraOrgClient:
 
 
 # =====================================================
-# PUBLIC SERVICE (FACADE)
+# PUBLIC SERVICE
 # =====================================================
 class SamsaraService:
+    LIVE_WINDOW = timedelta(minutes=15)
+
     def __init__(self):
         self.orgs: list[_SamsaraOrgClient] = []
         self._init_orgs()
@@ -104,25 +104,18 @@ class SamsaraService:
         self._session_refs = 0
         self._session_lock = asyncio.Lock()
 
-        self._running = False
-        self._refresh_interval = 3600
-
-        # 🔑 global dedup memory
-        self._vehicle_org_hint: dict[str, str] = {}
-
     def _init_orgs(self):
-        tokens = [
-            (getattr(settings, "SAMSARA_API_TOKEN", None), "ORG_1"),
-            (getattr(settings, "SAMSARA_API_TOKEN_2", None), "ORG_2"),
-        ]
-        for token, name in tokens:
+        for token, name in [
+            (settings.SAMSARA_API_TOKEN, "ORG_1"),
+            (settings.SAMSARA_API_TOKEN_2, "ORG_2"),
+        ]:
             if token:
                 self.orgs.append(_SamsaraOrgClient(token, name))
 
     async def __aenter__(self):
         async with self._session_lock:
             if self._session_refs == 0:
-                await asyncio.gather(*[org.open() for org in self.orgs])
+                await asyncio.gather(*[o.open() for o in self.orgs])
             self._session_refs += 1
         return self
 
@@ -130,100 +123,116 @@ class SamsaraService:
         async with self._session_lock:
             self._session_refs -= 1
             if self._session_refs <= 0:
-                await self.close_all()
-
-    async def close_all(self):
-        await asyncio.gather(*[org.close() for org in self.orgs], return_exceptions=True)
-        logger.info("🛑 All Samsara sessions closed")
+                await asyncio.gather(*[o.close() for o in self.orgs])
 
     # =====================================================
-    # HELPERS
+    # VEHICLES
     # =====================================================
     def _vehicle_key(self, v: dict) -> str:
         return (
-            (v.get("vin") or v.get("externalIds", {}).get("samsara.vin"))
+            v.get("vin")
+            or v.get("externalIds", {}).get("samsara.vin")
             or v.get("name")
             or v.get("licensePlate")
             or ""
         ).lower()
 
-    # =====================================================
-    # DATA
-    # =====================================================
     async def get_vehicles(self, use_cache: bool = True) -> list[dict]:
-        """
-        Always returns DEDUPLICATED vehicles across all orgs.
-        Dedup key: VIN > NAME > PLATE
-        """
-
-        vehicles: list[dict] = []
-
+        vehicles = []
         if use_cache:
-            for org in self.orgs:
-                vehicles.extend(org._vehicle_cache)
+            for o in self.orgs:
+                vehicles.extend(o._vehicle_cache)
         else:
-            results = await asyncio.gather(*[org.fetch_all_vehicles() for org in self.orgs])
-            for sub in results:
-                vehicles.extend(sub)
+            res = await asyncio.gather(*[o.fetch_all_vehicles() for o in self.orgs])
+            for r in res:
+                vehicles.extend(r)
 
         seen = set()
-        unique: list[dict] = []
-
+        unique = []
         for v in vehicles:
             key = self._vehicle_key(v)
-            if not key:
-                continue
-            if key in seen:
-                continue
-
-            seen.add(key)
-            unique.append(v)
-            self._vehicle_org_hint[key] = v["_org"]
+            if key and key not in seen:
+                seen.add(key)
+                unique.append(v)
 
         logger.warning(f"[DEDUP CHECK] vehicles before={len(vehicles)} after={len(unique)}")
-
         return unique
 
     async def get_vehicle_by_id(self, vehicle_id: str) -> dict | None:
-        vehicles = await self.get_vehicles(use_cache=True)
-        return next((v for v in vehicles if str(v.get("id")) == str(vehicle_id)), None)
+        for v in await self.get_vehicles(use_cache=True):
+            if str(v.get("id")) == str(vehicle_id):
+                return v
+        for v in await self.get_vehicles(use_cache=False):
+            if str(v.get("id")) == str(vehicle_id):
+                return v
+        return None
 
-    async def search_vehicles(
-        self, query: str, search_by: str = "all", limit: int = 50
-    ) -> list[dict]:
+    async def search_vehicles(self, query: str, search_by: str = "all", limit: int = 50):
         q = query.lower().strip()
-        vehicles = await self.get_vehicles(use_cache=True)
+        vehicles = await self.get_vehicles(use_cache=False)
 
+        out = []
         seen = set()
-        results = []
-
         for v in vehicles:
             key = self._vehicle_key(v)
-            if not key or key in seen:
+            if key in seen:
                 continue
 
             name = (v.get("name") or "").lower()
-            vin = (v.get("vin") or v.get("externalIds", {}).get("samsara.vin", "")).lower()
+            vin = (v.get("vin") or "").lower()
             plate = (v.get("licensePlate") or "").lower()
 
             if (
-                search_by == "name"
-                and q in name
-                or search_by == "vin"
-                and q in vin
-                or search_by == "plate"
-                and q in plate
-                or search_by == "all"
-                and (q in name or q in vin or q in plate)
+                (search_by == "name" and q in name)
+                or (search_by == "vin" and q in vin)
+                or (search_by == "plate" and q in plate)
+                or (search_by == "all" and (q in name or q in vin or q in plate))
             ):
+                out.append(v)
                 seen.add(key)
-                results.append(v)
-                self._vehicle_org_hint[key] = v["_org"]
-
-                if len(results) >= limit:
+                if len(out) >= limit:
                     break
 
-        return results
+        return out
+
+    # =====================================================
+    # GPS — LIVE ONLY
+    # =====================================================
+    async def _try_org(self, org: _SamsaraOrgClient, vin: str):
+        vehicles = org._vehicle_cache or await org.fetch_all_vehicles()
+
+        match = next(
+            (
+                v
+                for v in vehicles
+                if (v.get("vin") or v.get("externalIds", {}).get("samsara.vin")) == vin
+            ),
+            None,
+        )
+        if not match:
+            return None
+
+        res = await org.request(
+            "/fleet/vehicles/stats/feed",
+            {"types": "gps", "vehicleIds": str(match["id"])},
+        )
+
+        if not res or not res.get("data"):
+            return None
+
+        newest = None
+        for d in res["data"]:
+            for g in d.get("gps") or []:
+                ts_raw = g.get("time") or g.get("timestamp")
+                if not ts_raw:
+                    continue
+                ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+                if datetime.now(timezone.utc) - ts <= self.LIVE_WINDOW and (
+                    not newest or ts > newest[0]
+                ):
+                    newest = (ts, g)
+
+        return newest
 
     # =====================================================
     # STATS & LOCATION
@@ -251,82 +260,113 @@ class SamsaraService:
         return vehicle
 
     async def get_vehicle_location(self, vehicle_id: str) -> dict | None:
-        vehicle = await self.get_vehicle_by_id(vehicle_id)
+        now = datetime.now(timezone.utc)
+
+        # -------------------------------------------
+        # STEP 1: resolve VIN from ANY org
+        # -------------------------------------------
+        vehicles = await self.get_vehicles(use_cache=False)
+        vehicle = next((v for v in vehicles if str(v.get("id")) == str(vehicle_id)), None)
+
         if not vehicle:
+            logger.warning(f"[GPS] vehicle not found id={vehicle_id}")
             return None
 
-        client = next((o for o in self.orgs if o.org_name == vehicle["_org"]), None)
-        if not client:
+        vin = vehicle.get("vin") or vehicle.get("externalIds", {}).get("samsara.vin")
+        if not vin:
+            logger.warning(f"[GPS] no VIN id={vehicle_id}")
             return None
 
-        result = await client.request(
-            "/fleet/vehicles/stats/feed",
-            {"types": "gps", "vehicleIds": vehicle_id},
-        )
+        best: tuple[datetime, dict, str] | None = None
+        # (timestamp, gps, org_name)
 
-        if result and result.get("data"):
-            gps = result["data"][0].get("gps")
-            if gps:
-                last = gps[-1]
-                return {
-                    "latitude": last.get("latitude"),
-                    "longitude": last.get("longitude"),
-                    "address": last.get("reverseGeo", {}).get("formattedLocation"),
-                    "time": last.get("time") or last.get("timestamp"),
-                }
+        # -------------------------------------------
+        # STEP 2: check ALL orgs
+        # -------------------------------------------
+        for org in self.orgs:
+            # find vehicle in this org by VIN (CACHE FIRST)
+            org_vehicle = next(
+                (
+                    v
+                    for v in org._vehicle_cache
+                    if (v.get("vin") or v.get("externalIds", {}).get("samsara.vin")) == vin
+                ),
+                None,
+            )
 
-        return None
+            if not org_vehicle:
+                # fallback fetch only if missing
+                org_vehicles = await org.fetch_all_vehicles()
+                org_vehicle = next(
+                    (
+                        v
+                        for v in org_vehicles
+                        if (v.get("vin") or v.get("externalIds", {}).get("samsara.vin")) == vin
+                    ),
+                    None,
+                )
 
+            if not org_vehicle:
+                continue
+
+            org_vehicle_id = org_vehicle.get("id")
+            if not org_vehicle_id:
+                continue
+
+            result = await org.request(
+                "/fleet/vehicles/stats/feed",
+                {"types": "gps", "vehicleIds": str(org_vehicle_id)},
+            )
+
+            if not result or not result.get("data"):
+                continue
+
+            for item in result["data"]:
+                for g in item.get("gps") or []:
+                    ts_raw = g.get("time") or g.get("timestamp")
+                    if not ts_raw:
+                        continue
+                    try:
+                        ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+                    except Exception:
+                        continue
+
+                    # -----------------------------------
+                    # PICK THE NEWEST GPS ACROSS ALL ORGS
+                    # -----------------------------------
+                    if not best or ts > best[0]:
+                        best = (ts, g, org.org_name)
+
+        if not best:
+            logger.warning(f"[NO GPS FOUND] vin={vin}")
+            return None
+
+        ts, gps, org_name = best
+        confidence = "LIVE" if now - ts <= timedelta(minutes=15) else "STALE"
+
+        logger.warning(f"[GPS SELECTED] org={org_name} ts={ts.isoformat()} confidence={confidence}")
+
+        return {
+            "latitude": gps.get("latitude"),
+            "longitude": gps.get("longitude"),
+            "address": gps.get("reverseGeo", {}).get("formattedLocation"),
+            "time": ts,
+            "confidence": confidence,
+        }
+
+    # =====================================================
+    # HEALTH
+    # =====================================================
     async def test_connection(self) -> bool:
-        """
-        Compatibility method (old code expects it).
-        Returns True only if ALL orgs respond.
-        """
-        if not self.orgs:
-            logger.error("❌ No Samsara org tokens configured")
-            return False
-
         try:
             async with self:
                 results = await asyncio.gather(
-                    *[org.request("/fleet/vehicles", {"limit": 1}) for org in self.orgs],
+                    *[o.request("/fleet/vehicles", {"limit": 1}) for o in self.orgs],
                     return_exceptions=True,
                 )
-
-            ok = True
-            for org, r in zip(self.orgs, results, strict=False):
-                if isinstance(r, Exception) or r is None:
-                    logger.error(f"❌ Samsara connection FAILED [{org.org_name}]")
-                    ok = False
-                else:
-                    logger.info(f"✅ Samsara connection OK [{org.org_name}]")
-
-            return ok
-        except Exception as e:
-            logger.error(f"❌ Samsara test_connection crashed: {e}")
+            return all(r and not isinstance(r, Exception) for r in results)
+        except Exception:
             return False
-
-    # =====================================================
-    # BACKGROUND LOOP
-    # =====================================================
-    async def run_forever(self):
-        if self._running:
-            return
-
-        self._running = True
-        logger.info("🔄 Samsara Background Loop Started")
-
-        try:
-            async with self:
-                while self._running:
-                    try:
-                        await self.get_vehicles(use_cache=False)
-                        logger.info("✅ Cache refreshed")
-                    except Exception as e:
-                        logger.error(f"💥 Refresh Error: {e}")
-                    await asyncio.sleep(self._refresh_interval)
-        finally:
-            self._running = False
 
 
 # =====================================================
